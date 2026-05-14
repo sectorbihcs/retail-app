@@ -128,17 +128,24 @@ type PageCtx    = "p1" | "total"
 
 export default function ShareOfShelfPage() {
   const market = useMarket()
-  const SELLERS    = market.sellers
-  const CATEGORIES = market.categories
-  const CHANNELS   = market.channels
-  const COLORS     = market.colors
+  const SELLERS = market.sellers
+  const COLORS  = market.colors
 
-  const [channel,       setChannel]       = useState("")
-  const [category,      setCategory]      = useState("")
-  const [selectedSeller, setSelectedSeller] = useState(SELLERS[0] || "")
+  // Filtros
+  const [channel,    setChannel]    = useState("")
+  const [category,   setCategory]   = useState("")
+  const [startDate,  setStartDate]  = useState("")
+  const [endDate,    setEndDate]    = useState("")
+  const [minDate,    setMinDate]    = useState("")
+  const [maxDate,    setMaxDate]    = useState("")
+
+  // Opciones dinámicas de los selects
+  const [availableChannels,    setAvailableChannels]    = useState<string[]>([])
+  const [availableCategories,  setAvailableCategories]  = useState<string[]>([])
+  const [selectedSeller,  setSelectedSeller]  = useState(SELLERS[0] || "")
   const [selectedSellers, setSelectedSellers] = useState(SELLERS.slice(0, 4))
-  const [page,          setPage]          = useState<PageCtx>("p1")
-  const [drill,         setDrill]         = useState<DrillLevel>("seller")
+  const [page,  setPage]  = useState<PageCtx>("p1")
+  const [drill, setDrill] = useState<DrillLevel>("seller")
 
   const [sellerData,  setSellerData]  = useState<Record<string, unknown>[]>([])
   const [brandData,   setBrandData]   = useState<Record<string, unknown>[]>([])
@@ -154,6 +161,47 @@ export default function ShareOfShelfPage() {
     }
   }, [SELLERS[0]])
 
+  // ── Cargar rango de fechas disponible ─────────────────────
+  useEffect(() => {
+    fetch("/api/sos?action=dates")
+      .then(r => r.json())
+      .then((d: { min: string; max: string }) => {
+        setMinDate(d.min); setMaxDate(d.max)
+        setStartDate(d.min); setEndDate(d.max)
+      })
+      .catch(() => {})
+  }, [])
+
+  // ── Cascading: canales filtrados por categoría + fechas ───
+  useEffect(() => {
+    const p = new URLSearchParams({ action: "channels" })
+    if (category)  p.set("category",  category)
+    if (startDate) p.set("startDate", startDate)
+    if (endDate)   p.set("endDate",   endDate)
+    fetch(`/api/sos?${p}`)
+      .then(r => r.json())
+      .then((data: string[]) => {
+        if (!Array.isArray(data)) return
+        setAvailableChannels(data)
+        if (channel && !data.includes(channel)) setChannel("")
+      })
+  }, [category, startDate, endDate])
+
+  // ── Cascading: categorías filtradas por canal + fechas ────
+  useEffect(() => {
+    const p = new URLSearchParams({ action: "categories" })
+    if (channel)   p.set("channel",   channel)
+    if (startDate) p.set("startDate", startDate)
+    if (endDate)   p.set("endDate",   endDate)
+    fetch(`/api/sos?${p}`)
+      .then(r => r.json())
+      .then((data: string[]) => {
+        if (!Array.isArray(data)) return
+        setAvailableCategories(data)
+        if (category && !data.includes(category)) setCategory("")
+      })
+  }, [channel, startDate, endDate])
+
   const api = useCallback(
     (action: string) =>
       fetch(
@@ -162,11 +210,13 @@ export default function ShareOfShelfPage() {
         `&category=${encodeURIComponent(category)}` +
         `&seller=${encodeURIComponent(selectedSeller)}` +
         `&sellers=${selectedSellers.join(",")}` +
-        `&page=${page}`
+        `&page=${page}` +
+        (startDate ? `&startDate=${startDate}` : "") +
+        (endDate   ? `&endDate=${endDate}`     : "")
       )
         .then(r => r.json())
         .then(d => (Array.isArray(d) ? d : [])),
-    [channel, category, selectedSeller, selectedSellers, page]
+    [channel, category, selectedSeller, selectedSellers, page, startDate, endDate]
   )
 
   useEffect(() => {
@@ -198,6 +248,32 @@ export default function ShareOfShelfPage() {
 
       {/* ── Filtros ───────────────────────────────────────── */}
       <div className="flex items-center gap-3 flex-wrap p-3 bg-gray-50 border border-gray-200 rounded-xl">
+
+        {/* Fechas */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Desde</span>
+          <input
+            type="date"
+            value={startDate}
+            min={minDate}
+            max={endDate || maxDate}
+            onChange={e => setStartDate(e.target.value)}
+            className="border border-gray-200 text-gray-700 text-xs px-2.5 py-1.5 rounded-lg outline-none bg-white"
+          />
+          <span className="text-xs text-gray-400">Hasta</span>
+          <input
+            type="date"
+            value={endDate}
+            min={startDate || minDate}
+            max={maxDate}
+            onChange={e => setEndDate(e.target.value)}
+            className="border border-gray-200 text-gray-700 text-xs px-2.5 py-1.5 rounded-lg outline-none bg-white"
+          />
+        </div>
+
+        <div className="w-px h-5 bg-gray-200 hidden sm:block" />
+
+        {/* Canal */}
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400">Canal</span>
           <select
@@ -206,9 +282,11 @@ export default function ShareOfShelfPage() {
             className="border border-gray-200 text-gray-700 text-xs px-3 py-1.5 rounded-lg outline-none bg-white"
           >
             <option value="">Todos los canales</option>
-            {CHANNELS.map(c => <option key={c}>{c}</option>)}
+            {availableChannels.map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
+
+        {/* Categoría */}
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400">Categoría</span>
           <select
@@ -217,9 +295,10 @@ export default function ShareOfShelfPage() {
             className="border border-gray-200 text-gray-700 text-xs px-3 py-1.5 rounded-lg outline-none bg-white"
           >
             <option value="">Todas las categorías</option>
-            {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+            {availableCategories.map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
+
         <div className="flex gap-1 bg-white border border-gray-200 p-1 rounded-lg">
           {(["p1", "total"] as PageCtx[]).map(p => (
             <button

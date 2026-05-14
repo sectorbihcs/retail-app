@@ -49,6 +49,17 @@ export async function GET(req: Request) {
   const sellersParam = searchParams.get("sellers")?.split(",").filter(Boolean) || []
 
   try {
+    // ── rango de fechas disponible ────────────────────────
+    if (action === "dates") {
+      const [r] = await prisma.$queryRaw<{ min_d: Date; max_d: Date }[]>`
+        SELECT MIN(DATE(fecha))::date AS min_d, MAX(DATE(fecha))::date AS max_d FROM eci.sos
+      `
+      return NextResponse.json({
+        min: r.min_d.toISOString().split("T")[0],
+        max: r.max_d.toISOString().split("T")[0],
+      })
+    }
+
     // ── sellers list ──────────────────────────────────────
     if (action === "sellers_list") {
       const rows = await prisma.seller.findMany({ orderBy: { name: "asc" } })
@@ -56,18 +67,40 @@ export async function GET(req: Request) {
       return NextResponse.json(rows.map(r => r.name))
     }
 
-    // ── categories list ───────────────────────────────────
+    // ── categories list (filtrada por canal + fechas) ─────
     if (action === "categories") {
-      const rows = await prisma.category.findMany({ orderBy: { name: "asc" } })
+      const startDate = searchParams.get("startDate") || ""
+      const endDate   = searchParams.get("endDate")   || ""
+      const startD = startDate ? new Date(startDate + "T00:00:00Z") : new Date("2000-01-01T00:00:00Z")
+      const endD   = endDate   ? new Date(endDate   + "T23:59:59Z") : new Date("2099-12-31T23:59:59Z")
+
+      const params: unknown[] = [startD, endD]
+      let sql = `SELECT DISTINCT categoria AS n FROM eci.sos
+                 WHERE fecha >= $1 AND fecha <= $2 AND categoria IS NOT NULL`
+      if (channel) { sql += ` AND plataforma = $${params.length + 1}`; params.push(channel) }
+      sql += " ORDER BY 1"
+
+      const rows = await prisma.$queryRawUnsafe<{ n: string }[]>(sql, ...params)
       if (rows.length === 0) return NextResponse.json(MOCK_CATEGORIES)
-      return NextResponse.json(rows.map(r => r.name))
+      return NextResponse.json(rows.map(r => r.n))
     }
 
-    // ── channels list ─────────────────────────────────────
+    // ── channels list (filtrada por categoría + fechas) ───
     if (action === "channels") {
-      const rows = await prisma.channel.findMany({ orderBy: { name: "asc" } })
+      const startDate = searchParams.get("startDate") || ""
+      const endDate   = searchParams.get("endDate")   || ""
+      const startD = startDate ? new Date(startDate + "T00:00:00Z") : new Date("2000-01-01T00:00:00Z")
+      const endD   = endDate   ? new Date(endDate   + "T23:59:59Z") : new Date("2099-12-31T23:59:59Z")
+
+      const params: unknown[] = [startD, endD]
+      let sql = `SELECT DISTINCT plataforma AS n FROM eci.sos
+                 WHERE fecha >= $1 AND fecha <= $2 AND plataforma IS NOT NULL`
+      if (category) { sql += ` AND categoria = $${params.length + 1}`; params.push(category) }
+      sql += " ORDER BY 1"
+
+      const rows = await prisma.$queryRawUnsafe<{ n: string }[]>(sql, ...params)
       if (rows.length === 0) return NextResponse.json(MOCK_CHANNELS)
-      return NextResponse.json(rows.map(r => r.name))
+      return NextResponse.json(rows.map(r => r.n))
     }
 
     // ── sellers SOS overview ──────────────────────────────
