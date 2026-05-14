@@ -1,0 +1,48 @@
+{
+  "name": "app-sos",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:pull": "prisma db pull",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:etl": "tsx prisma/etl-from-eci.ts",
+    "db:studio": "prisma studio"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "^7.0.4",
+    "@prisma/client": "^6.0.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "lucide-react": "^0.378.0",
+    "next": "^16.1.6",
+    "react": "^18",
+    "react-dom": "^18",
+    "recharts": "^3.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "autoprefixer": "^10.0.1",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.3",
+    "pg": "^8.20.0",
+    "postcss": "^8",
+    "prisma": "^6.0.0",
+    "tailwindcss": "^3.4.1",
+    "tsx": "^4.22.0",
+    "typescript": "^5"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}

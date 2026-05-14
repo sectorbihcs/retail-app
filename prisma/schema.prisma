@@ -1,0 +1,129 @@
+// ─────────────────────────────────────────────────────────────
+// Prisma schema — SOS (Share of Shelf) app
+// DB: Prisma Postgres @ db.prisma.io
+//
+// Existing tables (found via db pull):
+//   allowed_users   → user access control
+//   login_history   → login audit trail
+//
+// New SOS tables to create:
+//   sellers, categories, channels, sos_entries, sos_trends, sos_channels
+//
+// To create tables in DB: npm run db:push
+// ─────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── AUTH TABLES (already exist in DB) ──────────────────────
+
+model allowed_users {
+  id        String   @id
+  email     String   @unique
+  schemas   String[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+}
+
+model login_history {
+  id        String   @id
+  email     String
+  timestamp DateTime @default(now())
+  success   Boolean
+  ipAddress String?
+}
+
+// ── SOS TABLES (created via db:push) ───────────────────────
+
+model Seller {
+  id    String @id @default(cuid())
+  name  String @unique
+  color String @default("#888888")
+
+  sosEntries  SosEntry[]
+  sosTrends   SosTrend[]
+  sosChannels SosChannel[]
+
+  @@map("sellers")
+}
+
+model Category {
+  id   String @id @default(cuid())
+  name String @unique
+
+  sosEntries SosEntry[]
+
+  @@map("categories")
+}
+
+model Channel {
+  id   String @id @default(cuid())
+  name String @unique
+
+  sosChannels SosChannel[]
+
+  @@map("channels")
+}
+
+/// One row = seller x category x date snapshot
+model SosEntry {
+  id             String   @id @default(cuid())
+  seller         Seller   @relation(fields: [sellerId], references: [id])
+  sellerId       String
+  category       Category @relation(fields: [categoryId], references: [id])
+  categoryId     String
+  brand          String?
+  titulo         String?
+  tituloId       String?
+  rankingPos     Int?
+  sosP1          Float    @default(0)
+  sosTotal       Float    @default(0)
+  sosP1Change    Float    @default(0)
+  sosTotalChange Float    @default(0)
+  productsP1     Int      @default(0)
+  productsTotal  Int      @default(0)
+  rank           Int      @default(0)
+  date           DateTime @default(now())
+
+  @@index([sellerId, categoryId])
+  @@index([date])
+  @@map("sos_entries")
+}
+
+/// Weekly trend per seller (12 weeks rolling)
+model SosTrend {
+  id       String   @id @default(cuid())
+  seller   Seller   @relation(fields: [sellerId], references: [id])
+  sellerId String
+  week     String
+  weekDate DateTime
+  sosP1    Float    @default(0)
+  sosTotal Float    @default(0)
+
+  @@unique([sellerId, weekDate])
+  @@index([sellerId, week])
+  @@map("sos_trends")
+}
+
+/// SOS per seller x channel snapshot
+model SosChannel {
+  id             String   @id @default(cuid())
+  seller         Seller   @relation(fields: [sellerId], references: [id])
+  sellerId       String
+  channel        Channel  @relation(fields: [channelId], references: [id])
+  channelId      String
+  sosP1          Float    @default(0)
+  sosTotal       Float    @default(0)
+  sosP1Change    Float    @default(0)
+  sosTotalChange Float    @default(0)
+  date           DateTime @default(now())
+
+  @@index([sellerId, channelId])
+  @@map("sos_channels")
+}
