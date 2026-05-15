@@ -60,11 +60,38 @@ export async function GET(req: Request) {
       })
     }
 
+    // ── helper: parse date params ─────────────────────────
+    const startDate = searchParams.get("startDate") || ""
+    const endDate   = searchParams.get("endDate")   || ""
+    const startD = startDate ? new Date(startDate + "T00:00:00Z") : new Date("2000-01-01T00:00:00Z")
+    const endD   = endDate   ? new Date(endDate   + "T23:59:59Z") : new Date("2099-12-31T23:59:59Z")
+
+    // helper: build common WHERE clause (fecha + optional channel/category)
+    function buildWhere(
+      params: unknown[],
+      opts: { channel?: boolean; category?: boolean } = { channel: true, category: true }
+    ) {
+      params.push(startD, endD)
+      let w = `fecha >= $${params.length - 1} AND fecha <= $${params.length}`
+      if (opts.channel !== false && channel) {
+        params.push(channel)
+        w += ` AND plataforma = $${params.length}`
+      }
+      if (opts.category !== false && category) {
+        params.push(category)
+        w += ` AND subcategoria = $${params.length}`
+      }
+      return w
+    }
+
     // ── sellers list ──────────────────────────────────────
     if (action === "sellers_list") {
-      const rows = await prisma.seller.findMany({ orderBy: { name: "asc" } })
+      const p: unknown[] = []
+      const w = buildWhere(p)
+      const sql = `SELECT DISTINCT seller AS n FROM eci.sos WHERE ${w} AND seller IS NOT NULL ORDER BY 1`
+      const rows = await prisma.$queryRawUnsafe<{ n: string }[]>(sql, ...p)
       if (rows.length === 0) return NextResponse.json(MOCK_SELLERS)
-      return NextResponse.json(rows.map(r => r.name))
+      return NextResponse.json(rows.map(r => r.n))
     }
 
     // ── categories list (filtrada por canal + fechas) ─────
@@ -103,288 +130,209 @@ export async function GET(req: Request) {
       return NextResponse.json(rows.map(r => r.n))
     }
 
+    const PALETTE = ["#A427FF","#3b82f6","#ef4444","#f59e0b","#06b6d4","#84cc16","#ec4899","#14b8a6","#f97316","#8b5cf6"]
+
     // ── sellers SOS overview ──────────────────────────────
     if (action === "sellers") {
-      const where: Record<string, unknown> = {}
-      if (category) where.category = { name: category }
-
-      const entries = await prisma.sosEntry.findMany({
-        where,
-        include: { seller: true, category: true },
-        orderBy: { date: "desc" },
-        // latest snapshot per seller
-      })
-
-      // Aggregate latest entry per seller
-      const bySellerMap = new Map<string, typeof entries[0]>()
-      entries.forEach(e => {
-        if (!bySellerMap.has(e.sellerId)) bySellerMap.set(e.sellerId, e)
-      })
-      const rows = Array.from(bySellerMap.values())
-
-      if (rows.length === 0) {
-        // Fallback to mock
-        const mock = MOCK_SELLERS.map((s, i) => mockSellerEntry(s, i))
-        const total = mock.reduce((sum, e) => sum + e.sos_p1, 0) || 1
-        mock.forEach((e, i) => { e.sos_p1 = Math.round((e.sos_p1 / total) * 100 * 10) / 10; e.rank = i + 1 })
-        mock.sort((a, b) => b.sos_p1 - a.sos_p1)
-        mock.forEach((e, i) => (e.rank = i + 1))
-        return NextResponse.json(mock)
-      }
-
-      const result = rows.map(e => ({
-        seller:          e.seller.name,
-        sos_p1:          e.sosP1,
-        sos_total:       e.sosTotal,
-        sos_p1_change:   e.sosP1Change,
-        sos_total_change: e.sosTotalChange,
-        products_p1:     e.productsP1,
-        products_total:  e.productsTotal,
-        color:           e.seller.color,
-        rank:            e.rank,
-      }))
-      result.sort((a, b) => b.sos_p1 - a.sos_p1)
-      result.forEach((e, i) => (e.rank = i + 1))
-      return NextResponse.json(result)
+      const p: unknown[] = []
+      const w = buildWhere(p)
+      const sql = `
+        WITH base AS (
+          SELECT seller, pagina FROM eci.sos WHERE ${w} AND seller IS NOT NULL
+        ),
+        total_p1  AS (SELECT COUNT(*) AS t FROM base WHERE pagina = 1),
+        total_all AS (SELECT COUNT(*) AS t FROM base),
+        per_seller AS (
+          SELECT seller,
+            COUNT(*) FILTER (WHERE pagina = 1) AS products_p1,
+            COUNT(*) AS products_total
+          FROM base GROUP BY seller
+        )
+        SELECT s.seller,
+          s.products_p1::int, s.products_total::int,
+          ROUND(s.products_p1 * 100.0 / NULLIF(tp.t, 0), 2) AS sos_p1,
+          ROUND(s.products_total * 100.0 / NULLIF(ta.t, 0), 2) AS sos_total
+        FROM per_seller s, total_p1 tp, total_all ta
+        ORDER BY sos_p1 DESC
+      `
+      const rows = await prisma.$queryRawUnsafe<{
+        seller: string; products_p1: number; products_total: number
+        sos_p1: number; sos_total: number
+      }[]>(sql, ...p)
+      return NextResponse.json(rows.map((r, i) => ({
+        seller:           r.seller,
+        sos_p1:           Number(r.sos_p1),
+        sos_total:        Number(r.sos_total),
+        sos_p1_change:    0,
+        sos_total_change: 0,
+        products_p1:      Number(r.products_p1),
+        products_total:   Number(r.products_total),
+        color:            PALETTE[i % PALETTE.length],
+        rank:             i + 1,
+      })))
     }
 
     // ── brand-level breakdown ─────────────────────────────
     if (action === "brands") {
-      const sellerRow = await prisma.seller.findUnique({ where: { name: seller } })
-      if (!sellerRow) {
-        const brands = [`${seller} Premium`, `${seller} Essential`, `${seller} Basic`]
-        return NextResponse.json(
-          brands.map((brand, i) => {
-            const rng = seededRandom(brand.length * 53 + i * 17)
-            const p1  = Math.round((5 + rng() * 15) * 10) / 10
-            return {
-              brand, seller,
-              sos_p1: p1, sos_total: Math.round((p1 + rng() * 5) * 10) / 10,
-              sos_p1_change: Math.round((rng() - 0.4) * 6 * 10) / 10,
-              sos_total_change: Math.round((rng() - 0.4) * 4 * 10) / 10,
-              products_p1: Math.floor(1 + rng() * 4),
-              color: MOCK_COLORS[seller] || "#888",
-            }
-          })
+      if (!seller) return NextResponse.json([])
+      const p: unknown[] = []
+      const w = buildWhere(p)
+      p.push(seller)
+      const sp = `$${p.length}`
+      const sql = `
+        WITH base AS (
+          SELECT marca, pagina FROM eci.sos
+          WHERE ${w} AND seller = ${sp} AND marca IS NOT NULL
+        ),
+        total_p1  AS (SELECT COUNT(*) AS t FROM base WHERE pagina = 1),
+        total_all AS (SELECT COUNT(*) AS t FROM base),
+        per_brand AS (
+          SELECT marca,
+            COUNT(*) FILTER (WHERE pagina = 1) AS products_p1,
+            COUNT(*) AS products_total
+          FROM base GROUP BY marca
         )
-      }
-
-      const where: Record<string, unknown> = { sellerId: sellerRow.id, brand: { not: null } }
-      if (category) where.category = { name: category }
-
-      const entries = await prisma.sosEntry.findMany({
-        where,
-        include: { seller: true },
-        orderBy: { date: "desc" },
-      })
-
-      const byBrand = new Map<string, typeof entries[0]>()
-      entries.forEach(e => { if (e.brand && !byBrand.has(e.brand)) byBrand.set(e.brand, e) })
-
-      if (byBrand.size === 0) {
-        const brands = [`${seller} Premium`, `${seller} Essential`, `${seller} Basic`]
-        return NextResponse.json(
-          brands.map((brand, i) => {
-            const rng = seededRandom(brand.length * 53 + i * 17)
-            const p1  = Math.round((5 + rng() * 15) * 10) / 10
-            return {
-              brand, seller,
-              sos_p1: p1, sos_total: Math.round((p1 + rng() * 5) * 10) / 10,
-              sos_p1_change: Math.round((rng() - 0.4) * 6 * 10) / 10,
-              sos_total_change: Math.round((rng() - 0.4) * 4 * 10) / 10,
-              products_p1: Math.floor(1 + rng() * 4),
-              color: sellerRow.color,
-            }
-          })
-        )
-      }
-
-      return NextResponse.json(
-        Array.from(byBrand.values()).map(e => ({
-          brand:           e.brand,
-          seller:          e.seller.name,
-          sos_p1:          e.sosP1,
-          sos_total:       e.sosTotal,
-          sos_p1_change:   e.sosP1Change,
-          sos_total_change: e.sosTotalChange,
-          products_p1:     e.productsP1,
-          color:           e.seller.color,
-        }))
-      )
+        SELECT b.marca AS brand,
+          b.products_p1::int, b.products_total::int,
+          ROUND(b.products_p1 * 100.0 / NULLIF(tp.t, 0), 2) AS sos_p1,
+          ROUND(b.products_total * 100.0 / NULLIF(ta.t, 0), 2) AS sos_total
+        FROM per_brand b, total_p1 tp, total_all ta
+        ORDER BY sos_p1 DESC
+      `
+      const rows = await prisma.$queryRawUnsafe<{
+        brand: string; products_p1: number; products_total: number
+        sos_p1: number; sos_total: number
+      }[]>(sql, ...p)
+      return NextResponse.json(rows.map(r => ({
+        brand:            r.brand,
+        seller,
+        sos_p1:           Number(r.sos_p1),
+        sos_total:        Number(r.sos_total),
+        sos_p1_change:    0,
+        sos_total_change: 0,
+        products_p1:      Number(r.products_p1),
+      })))
     }
 
-    // ── título (product title) breakdown ──────────────────
+    // ── título breakdown ──────────────────────────────────
     if (action === "titulos") {
-      const sellerRow = await prisma.seller.findUnique({ where: { name: seller } })
-      if (!sellerRow) {
-        const currentCat = category || MOCK_CATEGORIES[0]
-        return NextResponse.json(
-          Array.from({ length: 4 }, (_, i) => {
-            const rng = seededRandom(seller.length * 37 + i * 19)
-            return {
-              titulo_id:     `${seller.replace(" ", "-").toUpperCase()}-${String(i + 1).padStart(3, "0")}`,
-              titulo:        `${seller} ${currentCat} Opción ${i + 1}`,
-              seller,
-              sos_p1:        Math.round((3 + rng() * 12) * 10) / 10,
-              sos_total:     Math.round((5 + rng() * 14) * 10) / 10,
-              sos_p1_change: Math.round((rng() - 0.4) * 5 * 10) / 10,
-              sos_total_change: Math.round((rng() - 0.4) * 4 * 10) / 10,
-              ranking_pos:   Math.floor(rng() * 20) + 1,
-            }
-          })
+      if (!seller) return NextResponse.json([])
+      const p: unknown[] = []
+      const w = buildWhere(p)
+      p.push(seller)
+      const sp = `$${p.length}`
+      const sql = `
+        WITH base AS (
+          SELECT id, producto, pagina, ranking FROM eci.sos
+          WHERE ${w} AND seller = ${sp} AND producto IS NOT NULL
+        ),
+        total_p1  AS (SELECT COUNT(*) AS t FROM base WHERE pagina = 1),
+        total_all AS (SELECT COUNT(*) AS t FROM base),
+        per_titulo AS (
+          SELECT id, MAX(producto) AS titulo,
+            COUNT(*) FILTER (WHERE pagina = 1) AS products_p1,
+            COUNT(*) AS products_total,
+            MIN(ranking) AS best_ranking
+          FROM base GROUP BY id
         )
-      }
-
-      const where: Record<string, unknown> = { sellerId: sellerRow.id, titulo: { not: null } }
-      if (category) where.category = { name: category }
-
-      const entries = await prisma.sosEntry.findMany({
-        where,
-        include: { seller: true },
-        orderBy: { date: "desc" },
-      })
-
-      const byTitulo = new Map<string, typeof entries[0]>()
-      entries.forEach(e => { if (e.tituloId && !byTitulo.has(e.tituloId)) byTitulo.set(e.tituloId, e) })
-
-      if (byTitulo.size === 0) {
-        const currentCat = category || MOCK_CATEGORIES[0]
-        return NextResponse.json(
-          Array.from({ length: 4 }, (_, i) => {
-            const rng = seededRandom(seller.length * 37 + i * 19)
-            return {
-              titulo_id:     `${seller.replace(" ", "-").toUpperCase()}-${String(i + 1).padStart(3, "0")}`,
-              titulo:        `${seller} ${currentCat} Opción ${i + 1}`,
-              seller,
-              sos_p1:        Math.round((3 + rng() * 12) * 10) / 10,
-              sos_total:     Math.round((5 + rng() * 14) * 10) / 10,
-              sos_p1_change: Math.round((rng() - 0.4) * 5 * 10) / 10,
-              sos_total_change: Math.round((rng() - 0.4) * 4 * 10) / 10,
-              ranking_pos:   Math.floor(rng() * 20) + 1,
-            }
-          })
-        )
-      }
-
-      return NextResponse.json(
-        Array.from(byTitulo.values()).map(e => ({
-          titulo_id:       e.tituloId,
-          titulo:          e.titulo,
-          seller:          e.seller.name,
-          sos_p1:          e.sosP1,
-          sos_total:       e.sosTotal,
-          sos_p1_change:   e.sosP1Change,
-          sos_total_change: e.sosTotalChange,
-          ranking_pos:     e.rankingPos ?? 0,
-        }))
-      )
+        SELECT t.id AS titulo_id, t.titulo,
+          t.products_p1::int, t.products_total::int,
+          t.best_ranking::int,
+          ROUND(t.products_p1 * 100.0 / NULLIF(tp.t, 0), 2) AS sos_p1,
+          ROUND(t.products_total * 100.0 / NULLIF(ta.t, 0), 2) AS sos_total
+        FROM per_titulo t, total_p1 tp, total_all ta
+        ORDER BY sos_p1 DESC LIMIT 30
+      `
+      const rows = await prisma.$queryRawUnsafe<{
+        titulo_id: string; titulo: string; products_p1: number; products_total: number
+        best_ranking: number; sos_p1: number; sos_total: number
+      }[]>(sql, ...p)
+      return NextResponse.json(rows.map(r => ({
+        titulo_id:        r.titulo_id,
+        titulo:           r.titulo,
+        seller,
+        sos_p1:           Number(r.sos_p1),
+        sos_total:        Number(r.sos_total),
+        sos_p1_change:    0,
+        sos_total_change: 0,
+        ranking_pos:      Number(r.best_ranking),
+        products_p1:      Number(r.products_p1),
+      })))
     }
 
-    // ── 12-week trend ─────────────────────────────────────
+    // ── trend diario por seller ───────────────────────────
     if (action === "trend") {
-      const sellerList = sellersParam.length ? sellersParam : MOCK_SELLERS.slice(0, 4)
-
-      const sellerRows = await prisma.seller.findMany({
-        where: { name: { in: sellerList } },
-      })
-
-      if (sellerRows.length === 0) {
-        return NextResponse.json(
-          Array.from({ length: 12 }, (_, i) => {
-            const pt: Record<string, unknown> = { week: `S${i + 1}` }
-            sellerList.forEach((s, si) => {
-              const rng = seededRandom(s.length * 71 + i * 13 + si * 37)
-              pt[s] = Math.round((8 + rng() * 20) * 10) / 10
-            })
-            return pt
-          })
+      const sellerList = sellersParam.length ? sellersParam : []
+      if (sellerList.length === 0) return NextResponse.json([])
+      const p: unknown[] = []
+      const w = buildWhere(p)
+      const sellerPlaceholders = sellerList.map((_, i) => `$${p.length + i + 1}`).join(", ")
+      sellerList.forEach(s => p.push(s))
+      const sql = `
+        WITH base AS (
+          SELECT DATE(fecha) AS day, seller, pagina FROM eci.sos
+          WHERE ${w} AND seller IS NOT NULL
+        ),
+        daily_total AS (
+          SELECT day, COUNT(*) FILTER (WHERE pagina = 1) AS total_p1
+          FROM base GROUP BY day
+        ),
+        seller_daily AS (
+          SELECT day, seller, COUNT(*) FILTER (WHERE pagina = 1) AS products_p1
+          FROM base WHERE seller IN (${sellerPlaceholders})
+          GROUP BY day, seller
         )
-      }
-
-      const sellerIds = sellerRows.map(r => r.id)
-      const trends = await prisma.sosTrend.findMany({
-        where: { sellerId: { in: sellerIds } },
-        include: { seller: true },
-        orderBy: { weekDate: "asc" },
+        SELECT sd.day::text, sd.seller,
+          ROUND(sd.products_p1 * 100.0 / NULLIF(dt.total_p1, 0), 2) AS sos_p1
+        FROM seller_daily sd
+        JOIN daily_total dt ON sd.day = dt.day
+        ORDER BY sd.day, sd.seller
+      `
+      const rows = await prisma.$queryRawUnsafe<{ day: string; seller: string; sos_p1: number }[]>(sql, ...p)
+      const dayMap = new Map<string, Record<string, unknown>>()
+      rows.forEach(r => {
+        if (!dayMap.has(r.day)) dayMap.set(r.day, { week: r.day })
+        dayMap.get(r.day)![r.seller] = Number(r.sos_p1)
       })
-
-      if (trends.length === 0) {
-        return NextResponse.json(
-          Array.from({ length: 12 }, (_, i) => {
-            const pt: Record<string, unknown> = { week: `S${i + 1}` }
-            sellerList.forEach((s, si) => {
-              const rng = seededRandom(s.length * 71 + i * 13 + si * 37)
-              pt[s] = Math.round((8 + rng() * 20) * 10) / 10
-            })
-            return pt
-          })
-        )
-      }
-
-      // Group by week
-      const weekMap = new Map<string, Record<string, unknown>>()
-      trends.forEach(t => {
-        if (!weekMap.has(t.week)) weekMap.set(t.week, { week: t.week })
-        const pt = weekMap.get(t.week)!
-        pt[t.seller.name] = t.sosP1
-      })
-
-      return NextResponse.json(Array.from(weekMap.values()))
+      return NextResponse.json(Array.from(dayMap.values()))
     }
 
     // ── SOS by channel for a single seller ────────────────
     if (action === "by_channel") {
-      const sellerRow = await prisma.seller.findUnique({ where: { name: seller } })
-      if (!sellerRow) {
-        return NextResponse.json(
-          MOCK_CHANNELS.map((chan, i) => {
-            const rng = seededRandom(chan.length * 41 + seller.length * 23 + i)
-            const p1  = Math.round((8 + rng() * 22) * 10) / 10
-            return {
-              channel: chan,
-              sos_p1:           p1,
-              sos_total:        Math.round((p1 + rng() * 8) * 10) / 10,
-              sos_p1_change:    Math.round((rng() - 0.4) * 6 * 10) / 10,
-              sos_total_change: Math.round((rng() - 0.4) * 5 * 10) / 10,
-            }
-          })
+      if (!seller) return NextResponse.json([])
+      // channel filter not applied here — the chart already breaks down by channel
+      const p: unknown[] = []
+      const w = buildWhere(p, { channel: false, category: true })
+      p.push(seller)
+      const sp = `$${p.length}`
+      const sql = `
+        WITH base AS (
+          SELECT plataforma, pagina,
+            CASE WHEN seller = ${sp} THEN 1 ELSE 0 END AS is_seller
+          FROM eci.sos WHERE ${w} AND plataforma IS NOT NULL
         )
-      }
-
-      const sosChannels = await prisma.sosChannel.findMany({
-        where: { sellerId: sellerRow.id },
-        include: { channel: true },
-        orderBy: { date: "desc" },
-      })
-
-      const byChan = new Map<string, typeof sosChannels[0]>()
-      sosChannels.forEach(c => { if (!byChan.has(c.channelId)) byChan.set(c.channelId, c) })
-
-      if (byChan.size === 0) {
-        return NextResponse.json(
-          MOCK_CHANNELS.map((chan, i) => {
-            const rng = seededRandom(chan.length * 41 + seller.length * 23 + i)
-            const p1  = Math.round((8 + rng() * 22) * 10) / 10
-            return {
-              channel: chan,
-              sos_p1:           p1,
-              sos_total:        Math.round((p1 + rng() * 8) * 10) / 10,
-              sos_p1_change:    Math.round((rng() - 0.4) * 6 * 10) / 10,
-              sos_total_change: Math.round((rng() - 0.4) * 5 * 10) / 10,
-            }
-          })
-        )
-      }
-
-      return NextResponse.json(
-        Array.from(byChan.values()).map(c => ({
-          channel:         c.channel.name,
-          sos_p1:          c.sosP1,
-          sos_total:       c.sosTotal,
-          sos_p1_change:   c.sosP1Change,
-          sos_total_change: c.sosTotalChange,
-        }))
-      )
+        SELECT plataforma AS channel,
+          ROUND(
+            SUM(CASE WHEN is_seller = 1 AND pagina = 1 THEN 1 ELSE 0 END) * 100.0
+            / NULLIF(SUM(CASE WHEN pagina = 1 THEN 1 ELSE 0 END), 0), 2
+          ) AS sos_p1,
+          ROUND(
+            SUM(CASE WHEN is_seller = 1 THEN 1 ELSE 0 END) * 100.0
+            / NULLIF(COUNT(*), 0), 2
+          ) AS sos_total
+        FROM base
+        GROUP BY plataforma
+        HAVING SUM(CASE WHEN is_seller = 1 THEN 1 ELSE 0 END) > 0
+        ORDER BY sos_p1 DESC
+      `
+      const rows = await prisma.$queryRawUnsafe<{ channel: string; sos_p1: number; sos_total: number }[]>(sql, ...p)
+      return NextResponse.json(rows.map(r => ({
+        channel:          r.channel,
+        sos_p1:           Number(r.sos_p1),
+        sos_total:        Number(r.sos_total),
+        sos_p1_change:    0,
+        sos_total_change: 0,
+      })))
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 })
