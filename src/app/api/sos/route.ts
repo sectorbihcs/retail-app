@@ -40,6 +40,32 @@ function mockSellerEntry(seller: string, idx: number) {
   }
 }
 
+// ── Seller normalization ──────────────────────────────────
+// Add aliases here: { "raw DB name": "canonical name" }
+const SELLER_ALIASES: Record<string, string> = {
+  "Tienda Newsan": "Newsan",
+}
+
+// SQL CASE expression to normalize seller column
+const NORM_SELLER = Object.entries(SELLER_ALIASES)
+  .map(([alias, canonical]) => `WHEN seller = '${alias}' THEN '${canonical}'`)
+  .reduce((acc, c) => acc + " " + c, "CASE") + " ELSE seller END"
+
+// Returns all raw DB names (canonical + aliases) for a canonical seller name
+function expandSeller(canonical: string): string[] {
+  const aliases = Object.entries(SELLER_ALIASES)
+    .filter(([, c]) => c === canonical).map(([a]) => a)
+  return [canonical, ...aliases]
+}
+
+// Builds SQL `seller IN ($N, $N+1, ...)` expanding aliases, appends to params
+function sellerInSql(canonical: string, params: unknown[]): string {
+  const names = expandSeller(canonical)
+  const placeholders = names.map((_, i) => `$${params.length + i + 1}`).join(", ")
+  names.forEach(n => params.push(n))
+  return `seller IN (${placeholders})`
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const action   = searchParams.get("action") || "sellers"
@@ -88,7 +114,7 @@ export async function GET(req: Request) {
     if (action === "sellers_list") {
       const p: unknown[] = []
       const w = buildWhere(p)
-      const sql = `SELECT DISTINCT seller AS n FROM eci.sos WHERE ${w} AND seller IS NOT NULL ORDER BY 1`
+      const sql = `SELECT DISTINCT ${NORM_SELLER} AS n FROM eci.sos WHERE ${w} AND seller IS NOT NULL ORDER BY 1`
       const rows = await prisma.$queryRawUnsafe<{ n: string }[]>(sql, ...p)
       if (rows.length === 0) return NextResponse.json(MOCK_SELLERS)
       return NextResponse.json(rows.map(r => r.n))
@@ -138,7 +164,7 @@ export async function GET(req: Request) {
       const w = buildWhere(p)
       const sql = `
         WITH base AS (
-          SELECT seller, pagina FROM eci.sos WHERE ${w} AND seller IS NOT NULL
+          SELECT ${NORM_SELLER} AS seller, pagina FROM eci.sos WHERE ${w} AND seller IS NOT NULL
         ),
         total_p1  AS (SELECT COUNT(*) AS t FROM base WHERE pagina = 1),
         total_all AS (SELECT COUNT(*) AS t FROM base),
@@ -177,12 +203,11 @@ export async function GET(req: Request) {
       if (!seller) return NextResponse.json([])
       const p: unknown[] = []
       const w = buildWhere(p)
-      p.push(seller)
-      const sp = `$${p.length}`
+      const sellerCond = sellerInSql(seller, p)
       const sql = `
         WITH base AS (
           SELECT marca, pagina FROM eci.sos
-          WHERE ${w} AND seller = ${sp} AND marca IS NOT NULL
+          WHERE ${w} AND ${sellerCond} AND marca IS NOT NULL
         ),
         total_p1  AS (SELECT COUNT(*) AS t FROM base WHERE pagina = 1),
         total_all AS (SELECT COUNT(*) AS t FROM base),
@@ -219,12 +244,11 @@ export async function GET(req: Request) {
       if (!seller) return NextResponse.json([])
       const p: unknown[] = []
       const w = buildWhere(p)
-      p.push(seller)
-      const sp = `$${p.length}`
+      const sellerCond = sellerInSql(seller, p)
       const sql = `
         WITH base AS (
           SELECT id, producto, pagina, ranking FROM eci.sos
-          WHERE ${w} AND seller = ${sp} AND producto IS NOT NULL
+          WHERE ${w} AND ${sellerCond} AND producto IS NOT NULL
         ),
         total_p1  AS (SELECT COUNT(*) AS t FROM base WHERE pagina = 1),
         total_all AS (SELECT COUNT(*) AS t FROM base),
@@ -266,11 +290,13 @@ export async function GET(req: Request) {
       if (sellerList.length === 0) return NextResponse.json([])
       const p: unknown[] = []
       const w = buildWhere(p)
-      const sellerPlaceholders = sellerList.map((_, i) => `$${p.length + i + 1}`).join(", ")
-      sellerList.forEach(s => p.push(s))
+      // Expand each canonical seller name to include its aliases
+      const expandedSellers = sellerList.flatMap(s => expandSeller(s))
+      const sellerPlaceholders = expandedSellers.map((_, i) => `$${p.length + i + 1}`).join(", ")
+      expandedSellers.forEach(s => p.push(s))
       const sql = `
         WITH base AS (
-          SELECT DATE(fecha) AS day, seller, pagina FROM eci.sos
+          SELECT DATE(fecha) AS day, ${NORM_SELLER} AS seller, pagina FROM eci.sos
           WHERE ${w} AND seller IS NOT NULL
         ),
         daily_total AS (
@@ -303,12 +329,11 @@ export async function GET(req: Request) {
       // channel filter not applied here — the chart already breaks down by channel
       const p: unknown[] = []
       const w = buildWhere(p, { channel: false, category: true })
-      p.push(seller)
-      const sp = `$${p.length}`
+      const sellerCond = sellerInSql(seller, p)
       const sql = `
         WITH base AS (
           SELECT plataforma, pagina,
-            CASE WHEN seller = ${sp} THEN 1 ELSE 0 END AS is_seller
+            CASE WHEN ${sellerCond} THEN 1 ELSE 0 END AS is_seller
           FROM eci.sos WHERE ${w} AND plataforma IS NOT NULL
         )
         SELECT plataforma AS channel,
