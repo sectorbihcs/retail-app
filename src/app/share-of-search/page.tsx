@@ -1,7 +1,7 @@
 "use client"
 import { useMarket } from "@/lib/use-market"
 import PageHeader from "@/components/ui/PageHeader"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import clsx from "clsx"
 import { TrendingUp, TrendingDown, Minus } from "lucide-react"
 
@@ -147,7 +147,28 @@ export default function ShareOfShelfPage() {
   const [page,  setPage]  = useState<PageCtx>("p1")
   const [drill, setDrill] = useState<DrillLevel>("seller")
 
-  const [sellerData,  setSellerData]  = useState<Record<string, unknown>[]>([])
+  const [trendOpen, setTrendOpen] = useState(false)
+  const trendRef    = useRef<HTMLDivElement>(null)
+  const trendInitRef = useRef(false)
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (trendRef.current && !trendRef.current.contains(e.target as Node)) {
+        setTrendOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [])
+
+  // Default selectedSellers to top 5 by SOS when sellerData first loads
+  useEffect(() => {
+    if (sellerData.length > 0 && !trendInitRef.current) {
+      trendInitRef.current = true
+      setSelectedSellers(sellerData.slice(0, 5).map(e => String(e.seller)))
+    }
+  }, [sellerData.length])
   const [brandData,   setBrandData]   = useState<Record<string, unknown>[]>([])
   const [tituloData,  setTituloData]  = useState<Record<string, unknown>[]>([])
   const [trendData,   setTrendData]   = useState<Record<string, unknown>[]>([])
@@ -411,28 +432,50 @@ export default function ShareOfShelfPage() {
       <div className="bg-white border border-gray-100 shadow-sm rounded-xl p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="text-[10px] uppercase tracking-widest text-gray-400">
-            Evolución SOS · últimas 12 semanas
+            Evolución SOS
           </div>
-          <div className="flex gap-1 flex-wrap justify-end">
-            {SELLERS.map(s => (
-              <button
-                key={s}
-                onClick={() =>
-                  setSelectedSellers(prev =>
-                    prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]
+          {/* Multi-select dropdown — sellers ordered by SOS desc */}
+          <div className="relative" ref={trendRef}>
+            <button
+              onClick={() => setTrendOpen(prev => !prev)}
+              className="flex items-center gap-2 border border-gray-200 text-gray-700 text-xs px-3 py-1.5 rounded-lg bg-white hover:border-gray-400 transition-colors min-w-[130px] justify-between"
+            >
+              <span>
+                {selectedSellers.length === 0
+                  ? "Ningún seller"
+                  : selectedSellers.length === 1
+                  ? selectedSellers[0]
+                  : `${selectedSellers.length} sellers`}
+              </span>
+              <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {trendOpen && (
+              <div className="absolute right-0 top-full mt-1 z-20 bg-white border border-gray-200 rounded-xl shadow-lg w-60 max-h-72 overflow-y-auto">
+                {sellerData.map(e => {
+                  const s = String(e.seller)
+                  const checked = selectedSellers.includes(s)
+                  const val = Number(page === "p1" ? e.sos_p1 : e.sos_total)
+                  return (
+                    <label key={s} className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          setSelectedSellers(prev =>
+                            prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]
+                          )
+                        }
+                        className="w-3.5 h-3.5 rounded accent-purple-600 shrink-0"
+                      />
+                      <span className="flex-1 text-xs text-gray-700 truncate">{s}</span>
+                      <span className="text-[11px] font-mono font-semibold text-gray-400">{val}%</span>
+                    </label>
                   )
-                }
-                className={clsx(
-                  "px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all border",
-                  selectedSellers.includes(s)
-                    ? "text-white border-transparent"
-                    : "bg-white text-gray-400 border-gray-200 hover:border-gray-400"
-                )}
-                style={selectedSellers.includes(s) ? { backgroundColor: COLORS[s] || "#a427ff" } : {}}
-              >
-                {s}
-              </button>
-            ))}
+                })}
+              </div>
+            )}
           </div>
         </div>
         <TrendChart data={trendData} sellers={selectedSellers} colors={COLORS} />
