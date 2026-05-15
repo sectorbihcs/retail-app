@@ -162,13 +162,7 @@ export default function ShareOfShelfPage() {
     return () => document.removeEventListener("mousedown", handleClick)
   }, [])
 
-  // Default selectedSellers to top 5 by SOS when sellerData first loads
-  useEffect(() => {
-    if (sellerData.length > 0 && !trendInitRef.current) {
-      trendInitRef.current = true
-      setSelectedSellers(sellerData.slice(0, 5).map(e => String(e.seller)))
-    }
-  }, [sellerData.length])
+  const [sellerData,  setSellerData]  = useState<Record<string, unknown>[]>([])
   const [brandData,   setBrandData]   = useState<Record<string, unknown>[]>([])
   const [tituloData,  setTituloData]  = useState<Record<string, unknown>[]>([])
   const [trendData,   setTrendData]   = useState<Record<string, unknown>[]>([])
@@ -183,6 +177,14 @@ export default function ShareOfShelfPage() {
     setSelectedSeller(preferred[0] ?? SELLERS[0])
     setSelectedSellers(top4)
   }, [SELLERS[0]])
+
+  // Default selectedSellers to top 5 by SOS when sellerData first loads
+  useEffect(() => {
+    if (sellerData.length > 0 && !trendInitRef.current) {
+      trendInitRef.current = true
+      setSelectedSellers(sellerData.slice(0, 5).map(e => String(e.seller)))
+    }
+  }, [sellerData.length])
 
   // ── Cargar rango de fechas disponible ─────────────────────
   useEffect(() => {
