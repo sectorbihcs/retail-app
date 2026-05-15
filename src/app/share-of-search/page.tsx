@@ -235,7 +235,7 @@ export default function ShareOfShelfPage() {
   const ownColor  = COLORS[selectedSeller] || "#a427ff"
 
   // Top 15 sellers by current page SOS; the rest collapsed into "Otros"
-  const TOP_N = 15
+  const TOP_N = 8
   const sortedSellers = [...sellerData].sort(
     (a, b) => Number(page === "p1" ? b.sos_p1 : b.sos_total) - Number(page === "p1" ? a.sos_p1 : a.sos_total)
   )
@@ -372,12 +372,12 @@ export default function ShareOfShelfPage() {
           <div className="text-xs text-gray-400 mb-3">Share acumulado de todos los sellers</div>
           <StackedBar data={stackedData} />
           <div className="flex flex-wrap gap-x-3 gap-y-1.5 mt-3">
-            {sellerData.map(e => (
-              <div key={String(e.seller)} className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: String(e.color) }} />
-                <span className="text-[11px] text-gray-600">{String(e.seller)}</span>
+            {stackedData.map(e => (
+              <div key={e.label} className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: e.color }} />
+                <span className="text-[11px] text-gray-600">{e.label}</span>
                 <span className="text-[11px] font-semibold text-gray-900 font-mono">
-                  {Number(page === "p1" ? e.sos_p1 : e.sos_total)}%
+                  {e.value}%
                 </span>
               </div>
             ))}
