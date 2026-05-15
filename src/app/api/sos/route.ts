@@ -75,8 +75,8 @@ export async function GET(req: Request) {
       const endD   = endDate   ? new Date(endDate   + "T23:59:59Z") : new Date("2099-12-31T23:59:59Z")
 
       const params: unknown[] = [startD, endD]
-      let sql = `SELECT DISTINCT categoria AS n FROM eci.sos
-                 WHERE fecha >= $1 AND fecha <= $2 AND categoria IS NOT NULL`
+      let sql = `SELECT DISTINCT subcategoria_2 AS n FROM eci.sos
+                 WHERE fecha >= $1 AND fecha <= $2 AND subcategoria_2 IS NOT NULL`
       if (channel) { sql += ` AND plataforma = $${params.length + 1}`; params.push(channel) }
       sql += " ORDER BY 1"
 
@@ -95,7 +95,7 @@ export async function GET(req: Request) {
       const params: unknown[] = [startD, endD]
       let sql = `SELECT DISTINCT plataforma AS n FROM eci.sos
                  WHERE fecha >= $1 AND fecha <= $2 AND plataforma IS NOT NULL`
-      if (category) { sql += ` AND categoria = $${params.length + 1}`; params.push(category) }
+      if (category) { sql += ` AND subcategoria_2 = $${params.length + 1}`; params.push(category) }
       sql += " ORDER BY 1"
 
       const rows = await prisma.$queryRawUnsafe<{ n: string }[]>(sql, ...params)
