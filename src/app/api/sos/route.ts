@@ -374,7 +374,7 @@ export async function GET(req: Request) {
           MAX(producto) AS titulo,
           MAX(marca) AS marca,
           ${NORM_SELLER} AS seller,
-          MAX(ranking) AS best_ranking,
+          ROUND(AVG(ranking)) AS best_ranking,
           COUNT(*) FILTER (WHERE pagina = 1) AS appearances_p1,
           COUNT(*) AS appearances_total,
           MAX(pagina) AS max_page

@@ -136,11 +136,14 @@ function PlanogramaDigital({
                   </div>
                 </div>
 
-                {/* Marca + score */}
+                {/* Marca + stats */}
                 {entry.marca && (
                   <div className="text-[9px] text-gray-300 font-mono mt-1.5 truncate">{entry.marca}</div>
                 )}
-                <div className="text-[9px] text-gray-300 font-mono text-right">score {entry.ranking}</div>
+                <div className="text-[9px] text-gray-300 font-mono flex justify-between mt-0.5">
+                  <span>P1: {entry.appearances_p1}x</span>
+                  <span>avg {entry.ranking}</span>
+                </div>
               </div>
             )
           })}
@@ -529,10 +532,16 @@ export default function RankingPage() {
                     <div className="text-[10px] text-gray-400 truncate">{entry.seller}{entry.marca ? ` · ${entry.marca}` : ""}</div>
                   </div>
 
-                  {/* Apariciones + score */}
+                  {/* Score avg */}
                   <div className="hidden lg:block text-right flex-shrink-0">
-                    <div className="text-[10px] text-gray-400">Score</div>
+                    <div className="text-[10px] text-gray-400">Score prom.</div>
                     <div className="text-xs font-bold text-gray-700">{entry.ranking}</div>
+                  </div>
+
+                  {/* Apariciones P1 */}
+                  <div className="hidden lg:block text-right flex-shrink-0">
+                    <div className="text-[10px] text-gray-400">Ap. P1</div>
+                    <div className="text-xs font-bold text-gray-700">{entry.appearances_p1}</div>
                   </div>
 
                   {/* Barra potencial */}
