@@ -296,11 +296,12 @@ export default function BestsellersPage() {
               const color = COLORS[e.seller] || "#9ca3af"
               const hasDiscount = e.descuento && e.descuento > 0
               const hasPrecioOriginal = e.precio && e.precio > e.precio_venta
-              const hasEnvio = e.envio && e.envio.trim() !== ""
-              const isOficial = e.tienda_oficial && e.tienda_oficial.toLowerCase() === "si"
+              const isOficial = e.tienda_oficial?.toLowerCase() === "si"
               const isTop3 = e.rank <= 3
               const isFull = e.full?.toUpperCase() === "SI"
               const isRelampago = e.oferta_relampago?.toUpperCase() === "SI"
+              const envioVal = e.envio?.toLowerCase()
+              const hasEnvio = envioVal && envioVal !== "no" && envioVal.trim() !== ""
 
               return (
                 <div key={e.id} className={clsx(
@@ -359,7 +360,6 @@ export default function BestsellersPage() {
                         </span>
                       )}
                     </div>
-                    {/* Envío */}
                     {hasEnvio && (
                       <span className="flex items-center gap-1 text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full border border-blue-100">
                         <Truck size={8} />{e.envio}

@@ -404,9 +404,8 @@ export async function GET(req: Request) {
       const pageFilter = searchParams.get("page_filter") || "p1"
       const limit = Math.min(100, parseInt(searchParams.get("limit") || "20", 10))
       // Fecha única (usa param "date", cae a endDate si no viene)
-      const dateParam = searchParams.get("date") || endDate
-      const selectedDate = dateParam ? new Date(dateParam + "T00:00:00Z") : new Date()
-      const p: unknown[] = [selectedDate]
+      const dateParam = searchParams.get("date") || endDate || new Date().toISOString().split("T")[0]
+      const p: unknown[] = [dateParam]
       let w = `DATE(fecha) = $1::date`
       if (channel)  { p.push(channel);  w += ` AND plataforma = $${p.length}` }
       if (category) { p.push(category); w += ` AND subcategoria = $${p.length}` }
@@ -426,7 +425,7 @@ export async function GET(req: Request) {
           MAX(url_producto)       AS url_producto,
           MAX(envio)              AS envio,
           MAX(tienda_oficial)     AS tienda_oficial,
-          MAX(full)               AS full,
+          MAX("full")             AS full,
           MAX(oferta_relampago)   AS oferta_relampago,
           MAX(cuotas_sin_interes) AS cuotas_sin_interes,
           MAX(cupon)              AS cupon,
