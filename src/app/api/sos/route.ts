@@ -360,6 +360,45 @@ export async function GET(req: Request) {
       })))
     }
 
+    // ── ranking de productos por posición ────────────────
+    if (action === "ranking") {
+      const pageFilter = searchParams.get("page_filter") || "all" // "p1" | "all"
+      const limit = Math.min(200, parseInt(searchParams.get("limit") || "50", 10))
+      const p: unknown[] = []
+      const w = buildWhere(p)
+      const pageClause = pageFilter === "p1" ? "AND pagina = 1" : ""
+      const sellerCond = seller ? ` AND (${sellerInSql(seller, p)})` : ""
+      const sql = `
+        SELECT
+          id,
+          MAX(producto) AS titulo,
+          MAX(marca) AS marca,
+          ${NORM_SELLER} AS seller,
+          MIN(ranking) AS best_ranking,
+          COUNT(*) FILTER (WHERE pagina = 1) AS appearances_p1,
+          COUNT(*) AS appearances_total,
+          MAX(pagina) AS max_page
+        FROM eci.sos
+        WHERE ${w} ${pageClause} AND id IS NOT NULL AND ranking IS NOT NULL ${sellerCond}
+        GROUP BY id, ${NORM_SELLER}
+        ORDER BY best_ranking ASC
+        LIMIT ${limit}
+      `
+      const rows = await prisma.$queryRawUnsafe<{
+        id: string; titulo: string; marca: string; seller: string
+        best_ranking: number; appearances_p1: number; appearances_total: number; max_page: number
+      }[]>(sql, ...p)
+      return NextResponse.json(rows.map(r => ({
+        id:               r.id,
+        titulo:           r.titulo,
+        marca:            r.marca,
+        seller:           r.seller,
+        ranking:          Number(r.best_ranking),
+        appearances_p1:   Number(r.appearances_p1),
+        appearances_total: Number(r.appearances_total),
+      })))
+    }
+
     return NextResponse.json({ error: "Unknown action" }, { status: 400 })
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Internal error"

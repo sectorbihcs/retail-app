@@ -1,0 +1,556 @@
+"use client"
+import { useMarket } from "@/lib/use-market"
+import PageHeader from "@/components/ui/PageHeader"
+import { useState, useEffect, useCallback, useRef } from "react"
+import clsx from "clsx"
+import { TrendingUp, TrendingDown, Trophy, LayoutGrid, List, Search } from "lucide-react"
+
+// ── CLICK SHARE CURVE ─────────────────────────────────────────
+const CLICK_SHARE: Record<number, number> = {
+  1: 28.5, 2: 15.7, 3: 11.0, 4: 8.1,  5: 6.3,
+  6: 4.9,  7: 3.9,  8: 3.2,  9: 2.6, 10: 2.1,
+  11: 1.8, 12: 1.5, 13: 1.3, 14: 1.1, 15: 0.9,
+  16: 0.8, 17: 0.7, 18: 0.6, 19: 0.5, 20: 0.45,
+  21: 0.4, 22: 0.35, 23: 0.3, 24: 0.28, 25: 0.25,
+  26: 0.22, 27: 0.20, 28: 0.18, 29: 0.16, 30: 0.15,
+}
+function clickShare(pos: number) { return CLICK_SHARE[Math.min(30, Math.max(1, pos))] || 0.15 }
+const MAX_CLICK = CLICK_SHARE[1]
+function posWeight(pos: number) { return Math.round((clickShare(pos) / MAX_CLICK) * 100) }
+
+// ── TYPES ─────────────────────────────────────────────────────
+interface RankingProduct {
+  id: string
+  titulo: string
+  marca: string
+  seller: string
+  ranking: number
+  appearances_p1: number
+  appearances_total: number
+}
+
+// ── HELPERS ───────────────────────────────────────────────────
+function SellerInitial({ seller, size = 20, color }: { seller: string; size?: number; color?: string }) {
+  const bg = color || "#A427FF"
+  const initials = seller.length <= 3 ? seller : seller.slice(0, 2).toUpperCase()
+  return (
+    <div
+      className="rounded-full flex items-center justify-center font-black text-white flex-shrink-0 select-none"
+      style={{ width: size, height: size, backgroundColor: bg, fontSize: size * 0.38 }}
+    >
+      {initials}
+    </div>
+  )
+}
+
+function PosChange({ val }: { val: number }) {
+  if (val < 0) return <span className="text-green-600 text-xs flex items-center gap-0.5 font-bold"><TrendingUp size={10} />{Math.abs(val)}</span>
+  if (val > 0) return <span className="text-red-600 text-xs flex items-center gap-0.5 font-bold"><TrendingDown size={10} />+{val}</span>
+  return <span className="text-gray-300 text-xs">—</span>
+}
+
+// ── PLANOGRAMA ────────────────────────────────────────────────
+function PlanogramaDigital({
+  entries,
+  selectedSeller,
+  colors,
+}: {
+  entries: RankingProduct[]
+  selectedSeller: string
+  colors: Record<string, string>
+}) {
+  const rows: RankingProduct[][] = []
+  for (let i = 0; i < entries.length; i += 5) rows.push(entries.slice(i, i + 5))
+
+  return (
+    <div className="space-y-2">
+      {/* Leyenda */}
+      <div className="flex items-center gap-3 text-[10px] text-gray-400 mb-3 flex-wrap">
+        <span className="font-semibold uppercase tracking-wider">Potencial de captura por posición →</span>
+        {[1, 3, 5, 10, 20, 30].map(p => (
+          <div key={p} className="flex items-center gap-1">
+            <div className="rounded" style={{ width: 11, height: 11, backgroundColor: `rgba(164,39,255,${posWeight(p) / 100})`, border: "1px solid #e5e7eb" }} />
+            <span>#{p}={posWeight(p)}%</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Góndola */}
+      {rows.map((row, ri) => (
+        <div key={ri} className="grid grid-cols-5 gap-2">
+          {row.map((entry) => {
+            const pos = entry.ranking
+            const weight = posWeight(pos)
+            const isOwn = entry.seller === selectedSeller
+            const color = isOwn ? (colors[entry.seller] || "#A427FF") : (colors[entry.seller] || "#9ca3af")
+            const isTop3 = pos <= 3
+            const isTop10 = pos <= 10
+
+            return (
+              <div
+                key={entry.id}
+                className={clsx(
+                  "relative rounded-xl border-2 p-2.5 transition-all",
+                  isOwn ? "shadow-md" : "border-gray-100",
+                  isTop3 ? "bg-gradient-to-b from-yellow-50 to-white" :
+                  isTop10 ? "bg-gray-50/80" : "bg-white opacity-70"
+                )}
+                style={{ borderColor: isOwn ? color : isTop3 ? "#fde68a" : "#f3f4f6" }}
+              >
+                {/* Pos */}
+                <div className="flex items-start justify-between mb-1.5">
+                  <span className={clsx(
+                    "text-[10px] font-black font-mono rounded px-1.5 py-0.5",
+                    pos === 1 ? "bg-yellow-400 text-yellow-900" :
+                    pos <= 3  ? "bg-yellow-100 text-yellow-700" :
+                    pos <= 10 ? "bg-gray-100 text-gray-600" : "bg-gray-50 text-gray-400"
+                  )}>#{pos}</span>
+                  {pos === 1 && <Trophy size={10} className="text-yellow-500" />}
+                  {isOwn && (
+                    <span className="text-[9px] font-black rounded px-1 py-0.5" style={{ backgroundColor: color + "20", color }}>tú</span>
+                  )}
+                </div>
+
+                {/* Seller */}
+                <div className="flex items-center gap-1.5 mb-1">
+                  <SellerInitial seller={entry.seller} size={14} color={color} />
+                  <span className="text-[10px] font-bold truncate" style={{ color: isOwn ? color : "#374151" }}>
+                    {entry.seller}
+                  </span>
+                </div>
+
+                {/* Producto */}
+                <div className="text-[9px] text-gray-400 truncate leading-tight mb-2">
+                  {entry.titulo}
+                </div>
+
+                {/* Barra peso */}
+                <div className="mt-auto">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <span className="text-[9px] text-gray-400">Potencial</span>
+                    <span className="text-[9px] font-black" style={{ color: isTop3 ? "#d97706" : "#6b7280" }}>{weight}%</span>
+                  </div>
+                  <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: weight + "%", backgroundColor: isOwn ? color : isTop3 ? "#f59e0b" : "#d1d5db" }} />
+                  </div>
+                </div>
+
+                {/* Marca */}
+                {entry.marca && (
+                  <div className="text-[9px] text-gray-300 font-mono mt-1.5 text-right truncate">{entry.marca}</div>
+                )}
+              </div>
+            )
+          })}
+          {/* Completar fila */}
+          {row.length < 5 && Array.from({ length: 5 - row.length }).map((_, i) => (
+            <div key={`empty-${i}`} className="rounded-xl border border-dashed border-gray-100 bg-gray-50/30 p-2.5 opacity-30" />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── PAGE ──────────────────────────────────────────────────────
+export default function RankingPage() {
+  const market = useMarket()
+  const COLORS  = market.colors
+  const SELLERS = market.sellers
+
+  const [channel,   setChannel]   = useState("")
+  const [category,  setCategory]  = useState("")
+  const [startDate, setStartDate] = useState("")
+  const [endDate,   setEndDate]   = useState("")
+  const [minDate,   setMinDate]   = useState("")
+  const [maxDate,   setMaxDate]   = useState("")
+  const [pageFilter, setPageFilter] = useState<"all" | "p1">("p1")
+  const [topN,      setTopN]      = useState(30)
+  const [view,      setView]      = useState<"planograma" | "lista">("planograma")
+  const [search,    setSearch]    = useState("")
+
+  const [availableChannels,   setAvailableChannels]   = useState<string[]>([])
+  const [availableCategories, setAvailableCategories] = useState<string[]>([])
+  const [selectedSeller, setSelectedSeller] = useState("")
+
+  const [data,    setData]    = useState<RankingProduct[]>([])
+  const [loading, setLoading] = useState(false)
+
+  // Seller dropdown
+  const [sellerOpen, setSellerOpen] = useState(false)
+  const [sellerSearch, setSellerSearch] = useState("")
+  const sellerRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    function h(e: MouseEvent) {
+      if (sellerRef.current && !sellerRef.current.contains(e.target as Node)) {
+        setSellerOpen(false); setSellerSearch("")
+      }
+    }
+    document.addEventListener("mousedown", h)
+    return () => document.removeEventListener("mousedown", h)
+  }, [])
+
+  // Default seller = Newsan
+  useEffect(() => {
+    if (SELLERS.length === 0) return
+    const preferred = SELLERS.find(s => s === "Newsan") ?? SELLERS[0]
+    setSelectedSeller(preferred)
+  }, [SELLERS[0]])
+
+  // Rango de fechas
+  useEffect(() => {
+    fetch("/api/sos?action=dates")
+      .then(r => r.json())
+      .then((d: { min: string; max: string }) => {
+        setMinDate(d.min); setMaxDate(d.max)
+        setStartDate(d.min); setEndDate(d.max)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Cascading channels
+  useEffect(() => {
+    const p = new URLSearchParams({ action: "channels" })
+    if (category)  p.set("category",  category)
+    if (startDate) p.set("startDate", startDate)
+    if (endDate)   p.set("endDate",   endDate)
+    fetch(`/api/sos?${p}`).then(r => r.json()).then((d: string[]) => {
+      if (!Array.isArray(d)) return
+      setAvailableChannels(d)
+      if (channel && !d.includes(channel)) setChannel("")
+    })
+  }, [category, startDate, endDate])
+
+  // Cascading categories
+  useEffect(() => {
+    const p = new URLSearchParams({ action: "categories" })
+    if (channel)   p.set("channel",   channel)
+    if (startDate) p.set("startDate", startDate)
+    if (endDate)   p.set("endDate",   endDate)
+    fetch(`/api/sos?${p}`).then(r => r.json()).then((d: string[]) => {
+      if (!Array.isArray(d)) return
+      setAvailableCategories(d)
+      if (category && !d.includes(category)) setCategory("")
+    })
+  }, [channel, startDate, endDate])
+
+  // Fetch ranking data
+  const fetchData = useCallback(() => {
+    if (!startDate || !endDate) return
+    setLoading(true)
+    const p = new URLSearchParams({
+      action:      "ranking",
+      page_filter: pageFilter,
+      limit:       String(topN),
+    })
+    if (channel)   p.set("channel",   channel)
+    if (category)  p.set("category",  category)
+    if (startDate) p.set("startDate", startDate)
+    if (endDate)   p.set("endDate",   endDate)
+    fetch(`/api/sos?${p}`)
+      .then(r => r.json())
+      .then(d => setData(Array.isArray(d) ? d : []))
+      .finally(() => setLoading(false))
+  }, [channel, category, startDate, endDate, pageFilter, topN])
+
+  useEffect(() => { fetchData() }, [fetchData])
+
+  // Filtrar por búsqueda de texto
+  const filtered = data.filter(e =>
+    !search ||
+    e.titulo.toLowerCase().includes(search.toLowerCase()) ||
+    e.seller.toLowerCase().includes(search.toLowerCase()) ||
+    e.marca?.toLowerCase().includes(search.toLowerCase())
+  )
+
+  // KPIs
+  const ownProducts   = data.filter(e => e.seller === selectedSeller)
+  const ownTop3       = ownProducts.filter(e => e.ranking <= 3).length
+  const ownTop10      = ownProducts.filter(e => e.ranking <= 10).length
+  const ownBestRank   = ownProducts.length ? Math.min(...ownProducts.map(e => e.ranking)) : null
+  const ownCapture    = ownProducts.length
+    ? Math.round(ownProducts.reduce((s, e) => s + posWeight(e.ranking), 0) / Math.max(data.length, 1))
+    : 0
+
+  // Sellers presentes en resultados (para colores)
+  const sellersInView = Array.from(new Set(data.map(e => e.seller)))
+
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="Planograma Digital · Ranking"
+        subtitle="Posiciones reales en la góndola virtual ponderadas por potencial de captura"
+      />
+
+      {/* ── Filtros ─────────────────────────────────────── */}
+      <div className="flex items-center gap-3 flex-wrap p-3 bg-gray-50 border border-gray-200 rounded-xl">
+
+        {/* Fechas */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Desde</span>
+          <input type="date" value={startDate} min={minDate} max={endDate || maxDate}
+            onChange={e => setStartDate(e.target.value)}
+            className="border border-gray-200 text-gray-700 text-xs px-2.5 py-1.5 rounded-lg outline-none bg-white"
+          />
+          <span className="text-xs text-gray-400">Hasta</span>
+          <input type="date" value={endDate} min={startDate || minDate} max={maxDate}
+            onChange={e => setEndDate(e.target.value)}
+            className="border border-gray-200 text-gray-700 text-xs px-2.5 py-1.5 rounded-lg outline-none bg-white"
+          />
+        </div>
+
+        <div className="w-px h-5 bg-gray-200 hidden sm:block" />
+
+        {/* Canal */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Canal</span>
+          <select value={channel} onChange={e => setChannel(e.target.value)}
+            className="border border-gray-200 text-gray-700 text-xs px-3 py-1.5 rounded-lg outline-none bg-white"
+          >
+            <option value="">Todos los canales</option>
+            {availableChannels.map(c => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+
+        {/* Categoría */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Categoría</span>
+          <select value={category} onChange={e => setCategory(e.target.value)}
+            className="border border-gray-200 text-gray-700 text-xs px-3 py-1.5 rounded-lg outline-none bg-white"
+          >
+            <option value="">Todas las categorías</option>
+            {availableCategories.map(c => <option key={c}>{c}</option>)}
+          </select>
+        </div>
+
+        <div className="w-px h-5 bg-gray-200 hidden sm:block" />
+
+        {/* Seller con buscador */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Seller</span>
+          <div className="relative" ref={sellerRef}>
+            <button
+              onClick={() => { setSellerOpen(p => !p); setSellerSearch("") }}
+              className="flex items-center gap-2 border border-gray-200 text-gray-700 text-xs px-3 py-1.5 rounded-lg bg-white hover:border-gray-400 transition-colors min-w-[140px] justify-between"
+            >
+              <span className="truncate">{selectedSeller || "Seleccionar"}</span>
+              <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {sellerOpen && (
+              <div className="absolute left-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-xl shadow-lg w-64">
+                <div className="p-2 border-b border-gray-100">
+                  <input autoFocus type="text" placeholder="Buscar seller..." value={sellerSearch}
+                    onChange={e => setSellerSearch(e.target.value)}
+                    className="w-full text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg outline-none focus:border-purple-400"
+                  />
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  {SELLERS.filter(s => s.toLowerCase().includes(sellerSearch.toLowerCase())).map(s => (
+                    <button key={s}
+                      onClick={() => { setSelectedSeller(s); setSellerOpen(false); setSellerSearch("") }}
+                      className={clsx("w-full text-left px-3 py-2 text-xs hover:bg-gray-50 transition-colors",
+                        selectedSeller === s ? "text-purple-700 font-semibold bg-purple-50" : "text-gray-700"
+                      )}
+                    >{s}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="w-px h-5 bg-gray-200 hidden sm:block" />
+
+        {/* Página */}
+        <div className="flex gap-1 bg-white border border-gray-200 p-1 rounded-lg">
+          {([["p1", "Página 1"], ["all", "Total"]] as const).map(([val, label]) => (
+            <button key={val} onClick={() => setPageFilter(val)}
+              className={clsx("px-3 py-1 rounded-md text-xs font-medium transition-all",
+                pageFilter === val ? "bg-purple-600 text-white" : "text-gray-500 hover:text-gray-700"
+              )}
+            >{label}</button>
+          ))}
+        </div>
+
+        {/* Top N */}
+        <div className="flex gap-1 bg-white border border-gray-200 p-1 rounded-lg">
+          {[10, 30, 50].map(n => (
+            <button key={n} onClick={() => setTopN(n)}
+              className={clsx("px-3 py-1 rounded-md text-xs font-medium transition-all",
+                topN === n ? "bg-purple-600 text-white" : "text-gray-500 hover:text-gray-700"
+              )}
+            >Top {n}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── KPIs ─────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          {
+            label: `Mejor posición · ${selectedSeller || "—"}`,
+            value: ownBestRank !== null ? `#${ownBestRank}` : "—",
+            color: ownBestRank !== null && ownBestRank <= 3 ? "#16a34a" : ownBestRank !== null && ownBestRank <= 10 ? "#d97706" : "#6b7280",
+          },
+          {
+            label: "Captura ponderada",
+            value: `${ownCapture}%`,
+            sub: "vs potencial posición #1",
+          },
+          {
+            label: "Productos top 3",
+            value: String(ownTop3),
+            color: "#16a34a",
+            sub: `de ${data.length} en resultados`,
+          },
+          {
+            label: "Productos top 10",
+            value: String(ownTop10),
+            color: "#d97706",
+            sub: `${data.length ? Math.round(ownTop10 / data.length * 100) : 0}% del total`,
+          },
+        ].map(k => (
+          <div key={k.label} className="bg-white border border-gray-100 shadow-sm rounded-xl p-4">
+            <div className="text-[10px] uppercase tracking-wider text-gray-400 mb-2">{k.label}</div>
+            <div className="text-2xl font-bold" style={{ color: k.color || "#111827" }}>{k.value}</div>
+            {k.sub && <div className="text-xs text-gray-400 mt-1">{k.sub}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* ── Tabla / Planograma ─────────────────────────── */}
+      <div className="bg-white border border-gray-100 shadow-sm rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-widest text-gray-400">
+              {category || "Todas las categorías"} · {channel || "Todos los canales"}
+            </div>
+            <div className="text-xs text-gray-400 mt-0.5">
+              {data.length} productos · {sellersInView.length} sellers presentes
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Buscador */}
+            <div className="flex items-center gap-1.5 border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white">
+              <Search size={11} className="text-gray-400" />
+              <input
+                type="text"
+                placeholder="Buscar producto, seller, marca..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="text-xs outline-none w-48 text-gray-700"
+              />
+            </div>
+            {/* Vista toggle */}
+            <div className="flex gap-1 bg-gray-50 p-1 rounded-lg border border-gray-200">
+              <button onClick={() => setView("planograma")}
+                className={clsx("flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all",
+                  view === "planograma" ? "bg-purple-600 text-white" : "text-gray-500 hover:text-gray-700"
+                )}>
+                <LayoutGrid size={11} /> Planograma
+              </button>
+              <button onClick={() => setView("lista")}
+                className={clsx("flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all",
+                  view === "lista" ? "bg-purple-600 text-white" : "text-gray-500 hover:text-gray-700"
+                )}>
+                <List size={11} /> Lista
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="w-7 h-7 border-2 border-purple-600 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-16 text-gray-400 text-sm">Sin resultados para los filtros seleccionados</div>
+        ) : view === "planograma" ? (
+          <PlanogramaDigital entries={filtered} selectedSeller={selectedSeller} colors={COLORS} />
+        ) : (
+          /* ── Vista lista ── */
+          <div className="space-y-1.5">
+            {filtered.map(entry => {
+              const pos     = entry.ranking
+              const w       = posWeight(pos)
+              const isOwn   = entry.seller === selectedSeller
+              const color   = isOwn ? (COLORS[entry.seller] || "#A427FF") : (COLORS[entry.seller] || "#9ca3af")
+              const isTop3  = pos <= 3
+              const isTop10 = pos <= 10
+              return (
+                <div
+                  key={entry.id}
+                  className={clsx(
+                    "flex items-center gap-3 px-4 py-2.5 rounded-xl border text-sm",
+                    isOwn ? "border-2 bg-violet-50/50" : "bg-white border-gray-100 hover:bg-gray-50"
+                  )}
+                  style={isOwn ? { borderColor: color } : {}}
+                >
+                  {/* Posición */}
+                  <span className={clsx(
+                    "font-black font-mono text-xs px-1.5 py-0.5 rounded flex-shrink-0 min-w-[28px] text-center",
+                    pos === 1 ? "bg-yellow-100 text-yellow-700" :
+                    isTop3    ? "bg-green-50 text-green-700" :
+                    isTop10   ? "bg-amber-50 text-amber-700" : "bg-gray-100 text-gray-500"
+                  )}>#{pos}</span>
+
+                  {/* Seller */}
+                  <SellerInitial seller={entry.seller} size={22} color={color} />
+
+                  {/* Título + seller + marca */}
+                  <div className="flex-1 min-w-0">
+                    <div className={clsx("text-xs font-semibold truncate", isOwn ? "" : "text-gray-700")}
+                      style={isOwn ? { color } : {}}>
+                      {entry.titulo}
+                      {isOwn && (
+                        <span className="ml-1 text-[9px] font-black px-1.5 py-0.5 rounded-full"
+                          style={{ backgroundColor: color + "20", color }}>tú</span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-gray-400 truncate">{entry.seller}{entry.marca ? ` · ${entry.marca}` : ""}</div>
+                  </div>
+
+                  {/* Apariciones p1 */}
+                  <div className="hidden lg:block text-right flex-shrink-0">
+                    <div className="text-[10px] text-gray-400">Apariciones P1</div>
+                    <div className="text-xs font-bold text-gray-700">{entry.appearances_p1}</div>
+                  </div>
+
+                  {/* Barra potencial */}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: w + "%", backgroundColor: color }} />
+                    </div>
+                    <span className="text-[10px] font-black w-7 text-right" style={{ color }}>{w}%</span>
+                  </div>
+
+                  {pos === 1 && <Trophy size={12} className="text-yellow-500 flex-shrink-0" />}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Leyenda sellers */}
+        {!loading && data.length > 0 && (
+          <div className="mt-5 pt-4 border-t border-gray-100">
+            <div className="text-[10px] uppercase tracking-widest text-gray-400 mb-2">Sellers en resultados</div>
+            <div className="flex flex-wrap gap-2">
+              {sellersInView.map(s => (
+                <div key={s} className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: COLORS[s] || "#9ca3af" }} />
+                  <span className="text-xs text-gray-600">{s}</span>
+                  <span className="text-[10px] font-mono text-gray-400">
+                    ({data.filter(e => e.seller === s).length})
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

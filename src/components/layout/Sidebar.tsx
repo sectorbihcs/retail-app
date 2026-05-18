@@ -3,7 +3,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
-import { Search, ChevronLeft, ChevronRight } from "lucide-react"
+import { Search, ChevronLeft, ChevronRight, ListOrdered } from "lucide-react"
 import { useClient } from "@/lib/client-context"
 
 function SOSBrandmark({ size = 28 }: { size?: number }) {
@@ -26,6 +26,7 @@ export default function Sidebar() {
 
   const W = expanded ? "220px" : "60px"
   const active = pathname === "/share-of-search"
+  const activeRanking = pathname === "/ranking"
 
   return (
     <>
@@ -82,6 +83,16 @@ export default function Sidebar() {
           >
             <Search size={15} className="flex-shrink-0" />
             {expanded && <span className="text-[13px] font-light truncate">Share of Shelf</span>}
+          </Link>
+          <Link
+            href="/ranking"
+            className="flex items-center gap-3 px-2 py-2.5 rounded-xl mb-0.5 transition-all duration-150"
+            style={activeRanking ? { backgroundColor: brandColor, color: "#fff" } : { color: "rgba(255,255,255,0.5)" }}
+            onMouseEnter={e => { if (!activeRanking) e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.08)" }}
+            onMouseLeave={e => { if (!activeRanking) e.currentTarget.style.backgroundColor = "transparent" }}
+          >
+            <ListOrdered size={15} className="flex-shrink-0" />
+            {expanded && <span className="text-[13px] font-light truncate">Ranking</span>}
           </Link>
         </nav>
 
@@ -159,6 +170,15 @@ export default function Sidebar() {
           >
             <Search size={15} />
             <span className="text-sm font-light">Share of Shelf</span>
+          </Link>
+          <Link
+            href="/ranking"
+            onClick={() => setMobileOpen(false)}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors"
+            style={activeRanking ? { backgroundColor: brandColor, color: "#fff" } : { color: "rgba(255,255,255,0.7)" }}
+          >
+            <ListOrdered size={15} />
+            <span className="text-sm font-light">Ranking</span>
           </Link>
         </nav>
 
