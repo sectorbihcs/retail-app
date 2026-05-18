@@ -690,7 +690,7 @@ export default function ShareOfShelfPage() {
             <table className="w-full min-w-[600px]">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {["#", "Seller", "SOS Pág 1", "Δ", "SOS Total", "Δ", "Prods Pág 1", "Share"].map(h => (
+                  {["#", "Seller", "SOS Pág 1", "Δ", "SOS Total", "Δ", "Prods Pág 1", "Share"].map((h, i) => (
                     <th
                       key={h}
                       className="text-[10px] uppercase tracking-wider text-gray-400 text-left pb-2 px-2 font-medium"

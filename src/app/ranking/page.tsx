@@ -30,9 +30,10 @@ interface RankingProduct {
 }
 
 // ── HELPERS ───────────────────────────────────────────────────
-function SellerInitial({ seller, size = 20, color }: { seller: string; size?: number; color?: string }) {
+function SellerInitial({ seller, size = 20, color }: { seller: string | null; size?: number; color?: string }) {
   const bg = color || "#A427FF"
-  const initials = seller.length <= 3 ? seller : seller.slice(0, 2).toUpperCase()
+  const name = seller || "?"
+  const initials = name.length <= 3 ? name : name.slice(0, 2).toUpperCase()
   return (
     <div
       className="rounded-full flex items-center justify-center font-black text-white flex-shrink-0 select-none"
