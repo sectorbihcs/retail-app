@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { useMarket } from "@/lib/use-market"
 import PageHeader from "@/components/ui/PageHeader"
 import clsx from "clsx"
-import { ExternalLink, Trophy, Truck, TrendingUp, Tag, Search } from "lucide-react"
+import { ExternalLink, Trophy, Truck, TrendingUp, Tag, Search, Zap } from "lucide-react"
 
 // ─── TYPES ────────────────────────────────────────────────────
 interface BestsellerProduct {
@@ -11,6 +11,7 @@ interface BestsellerProduct {
   subcategoria: string; plataforma: string
   precio_venta: number; precio: number; descuento: number
   url_producto: string; envio: string; tienda_oficial: string
+  full: string; oferta_relampago: string; cuotas_sin_interes: number | null; cupon: string
   ranking: number; appearances_p1: number; appearances_total: number
 }
 
@@ -42,8 +43,7 @@ export default function BestsellersPage() {
 
   const [channel,   setChannel]   = useState("")
   const [category,  setCategory]  = useState("")
-  const [startDate, setStartDate] = useState("")
-  const [endDate,   setEndDate]   = useState("")
+  const [date,      setDate]      = useState("")   // fecha única
   const [minDate,   setMinDate]   = useState("")
   const [maxDate,   setMaxDate]   = useState("")
   const [pageFilter, setPageFilter] = useState<"p1" | "all">("p1")
@@ -70,61 +70,58 @@ export default function BestsellersPage() {
     return () => document.removeEventListener("mousedown", h)
   }, [])
 
-  // Fechas
+  // Fecha única — defaultea al máximo disponible
   useEffect(() => {
     fetch("/api/sos?action=dates")
       .then(r => r.json())
       .then((d: { min: string; max: string }) => {
         setMinDate(d.min); setMaxDate(d.max)
-        setStartDate(d.min); setEndDate(d.max)
+        setDate(d.max)   // siempre arranca en la fecha más reciente
       })
   }, [])
 
   // Cascading channels
   useEffect(() => {
     const p = new URLSearchParams({ action: "channels" })
-    if (category)  p.set("category",  category)
-    if (startDate) p.set("startDate", startDate)
-    if (endDate)   p.set("endDate",   endDate)
+    if (category) p.set("category",  category)
+    if (date)     p.set("startDate", date); if (date) p.set("endDate", date)
     fetch(`/api/sos?${p}`).then(r => r.json()).then((d: string[]) => {
       if (!Array.isArray(d)) return
       setAvailableChannels(d)
       if (channel && !d.includes(channel)) setChannel("")
     })
-  }, [category, startDate, endDate])
+  }, [category, date])
 
   // Cascading categories
   useEffect(() => {
     const p = new URLSearchParams({ action: "categories" })
-    if (channel)   p.set("channel",   channel)
-    if (startDate) p.set("startDate", startDate)
-    if (endDate)   p.set("endDate",   endDate)
+    if (channel) p.set("channel",   channel)
+    if (date)    p.set("startDate", date); if (date) p.set("endDate", date)
     fetch(`/api/sos?${p}`).then(r => r.json()).then((d: string[]) => {
       if (!Array.isArray(d)) return
       setAvailableCategories(d)
       if (category && !d.includes(category)) setCategory("")
     })
-  }, [channel, startDate, endDate])
+  }, [channel, date])
 
   // Fetch bestsellers
   const fetchData = useCallback(() => {
-    if (!startDate || !endDate) return
+    if (!date) return
     setLoading(true)
     const p = new URLSearchParams({
       action:      "bestsellers",
       page_filter: pageFilter,
       limit:       String(topN),
+      date,
     })
     if (channel)        p.set("channel",   channel)
     if (category)       p.set("category",  category)
-    if (startDate)      p.set("startDate", startDate)
-    if (endDate)        p.set("endDate",   endDate)
     if (selectedSeller) p.set("seller",    selectedSeller)
     fetch(`/api/sos?${p}`)
       .then(r => r.json())
       .then(d => setData(Array.isArray(d) ? d : []))
       .finally(() => setLoading(false))
-  }, [channel, category, startDate, endDate, pageFilter, topN, selectedSeller])
+  }, [channel, category, date, pageFilter, topN, selectedSeller])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -149,16 +146,19 @@ export default function BestsellersPage() {
 
       {/* ── Filtros ───────────────────────────────────────── */}
       <div className="flex items-center gap-3 flex-wrap p-3 bg-gray-50 border border-gray-200 rounded-xl">
-        {/* Fechas */}
+        {/* Fecha única */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-gray-400">Desde</span>
-          <input type="date" value={startDate} min={minDate} max={endDate || maxDate}
-            onChange={e => setStartDate(e.target.value)}
-            className="border border-gray-200 text-gray-700 text-xs px-2.5 py-1.5 rounded-lg outline-none bg-white" />
-          <span className="text-xs text-gray-400">Hasta</span>
-          <input type="date" value={endDate} min={startDate || minDate} max={maxDate}
-            onChange={e => setEndDate(e.target.value)}
-            className="border border-gray-200 text-gray-700 text-xs px-2.5 py-1.5 rounded-lg outline-none bg-white" />
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">Fecha</span>
+              <input type="date" value={date} min={minDate} max={maxDate}
+                onChange={e => setDate(e.target.value)}
+                className="border border-gray-200 text-gray-700 text-xs px-2.5 py-1.5 rounded-lg outline-none bg-white" />
+            </div>
+            {date === maxDate && (
+              <span className="text-[10px] text-green-600 font-semibold mt-0.5 pl-9">✓ Última actualización disponible</span>
+            )}
+          </div>
         </div>
 
         <div className="w-px h-5 bg-gray-200 hidden sm:block" />
@@ -299,6 +299,8 @@ export default function BestsellersPage() {
               const hasEnvio = e.envio && e.envio.trim() !== ""
               const isOficial = e.tienda_oficial && e.tienda_oficial.toLowerCase() === "si"
               const isTop3 = e.rank <= 3
+              const isFull = e.full?.toUpperCase() === "SI"
+              const isRelampago = e.oferta_relampago?.toUpperCase() === "SI"
 
               return (
                 <div key={e.id} className={clsx(
@@ -343,12 +345,39 @@ export default function BestsellersPage() {
                   </div>
 
                   {/* Badges */}
-                  <div className="flex flex-col items-center gap-1.5 flex-shrink-0">
+                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                    {/* Fila: Full + Oferta relámpago */}
+                    <div className="flex items-center gap-1">
+                      {isFull && (
+                        <span title="Mercado Libre Full" className="flex items-center gap-0.5 text-[9px] font-black text-white bg-green-500 px-1.5 py-0.5 rounded-full">
+                          <Zap size={8} className="fill-white" />Full
+                        </span>
+                      )}
+                      {isRelampago && (
+                        <span title="Oferta relámpago" className="flex items-center gap-0.5 text-[9px] font-black text-white bg-orange-500 px-1.5 py-0.5 rounded-full">
+                          <Zap size={8} className="fill-white" />Relámpago
+                        </span>
+                      )}
+                    </div>
+                    {/* Envío */}
                     {hasEnvio && (
                       <span className="flex items-center gap-1 text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full border border-blue-100">
                         <Truck size={8} />{e.envio}
                       </span>
                     )}
+                    {/* Cuotas */}
+                    {e.cuotas_sin_interes != null && e.cuotas_sin_interes > 0 && (
+                      <span className="text-[9px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full border border-purple-100">
+                        {e.cuotas_sin_interes}x s/i
+                      </span>
+                    )}
+                    {/* Cupón */}
+                    {e.cupon && e.cupon.trim() !== "" && (
+                      <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">
+                        🏷 {e.cupon}
+                      </span>
+                    )}
+                    {/* Link */}
                     {e.url_producto && (
                       <a href={e.url_producto} target="_blank" rel="noopener noreferrer"
                         className="flex items-center gap-1 text-[9px] text-gray-400 hover:text-purple-600 transition-colors bg-gray-50 border border-gray-200 px-1.5 py-0.5 rounded-full">

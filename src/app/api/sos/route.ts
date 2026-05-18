@@ -403,27 +403,36 @@ export async function GET(req: Request) {
     if (action === "bestsellers") {
       const pageFilter = searchParams.get("page_filter") || "p1"
       const limit = Math.min(100, parseInt(searchParams.get("limit") || "20", 10))
-      const p: unknown[] = []
-      const w = buildWhere(p)
+      // Fecha única (usa param "date", cae a endDate si no viene)
+      const dateParam = searchParams.get("date") || endDate
+      const selectedDate = dateParam ? new Date(dateParam + "T00:00:00Z") : new Date()
+      const p: unknown[] = [selectedDate]
+      let w = `DATE(fecha) = $1::date`
+      if (channel)  { p.push(channel);  w += ` AND plataforma = $${p.length}` }
+      if (category) { p.push(category); w += ` AND subcategoria = $${p.length}` }
       const pageClause = pageFilter === "p1" ? "AND pagina = 1" : ""
       const sellerCond = seller ? ` AND (${sellerInSql(seller, p)})` : ""
       const sql = `
         SELECT
           id,
-          MAX(producto)      AS titulo,
-          MAX(marca)         AS marca,
-          ${NORM_SELLER}     AS seller,
-          MAX(subcategoria)  AS subcategoria,
-          MAX(plataforma)    AS plataforma,
-          ROUND(AVG(precio_venta)::numeric, 0)   AS precio_venta,
-          ROUND(AVG(precio)::numeric, 0)         AS precio,
-          ROUND(AVG(descuento)::numeric, 1)      AS descuento,
-          MAX(url_producto)  AS url_producto,
-          MAX(envio)         AS envio,
-          MAX(tienda_oficial) AS tienda_oficial,
-          ROUND(AVG(ranking)::numeric, 0)        AS best_ranking,
-          COUNT(*) FILTER (WHERE pagina = 1)     AS appearances_p1,
-          COUNT(*)                               AS appearances_total
+          MAX(producto)           AS titulo,
+          MAX(marca)              AS marca,
+          ${NORM_SELLER}          AS seller,
+          MAX(subcategoria)       AS subcategoria,
+          MAX(plataforma)         AS plataforma,
+          ROUND(AVG(precio_venta)::numeric, 0)  AS precio_venta,
+          ROUND(AVG(precio)::numeric, 0)        AS precio,
+          ROUND(AVG(descuento)::numeric, 1)     AS descuento,
+          MAX(url_producto)       AS url_producto,
+          MAX(envio)              AS envio,
+          MAX(tienda_oficial)     AS tienda_oficial,
+          MAX(full)               AS full,
+          MAX(oferta_relampago)   AS oferta_relampago,
+          MAX(cuotas_sin_interes) AS cuotas_sin_interes,
+          MAX(cupon)              AS cupon,
+          ROUND(AVG(ranking)::numeric, 0)       AS best_ranking,
+          COUNT(*) FILTER (WHERE pagina = 1)    AS appearances_p1,
+          COUNT(*)                              AS appearances_total
         FROM eci.sos
         WHERE ${w} ${pageClause} AND id IS NOT NULL AND ranking IS NOT NULL ${sellerCond}
         GROUP BY id, ${NORM_SELLER}
@@ -435,24 +444,29 @@ export async function GET(req: Request) {
         subcategoria: string; plataforma: string
         precio_venta: number; precio: number; descuento: number
         url_producto: string; envio: string; tienda_oficial: string
+        full: string; oferta_relampago: string; cuotas_sin_interes: number; cupon: string
         best_ranking: number; appearances_p1: number; appearances_total: number
       }[]>(sql, ...p)
       return NextResponse.json(rows.map((r, i) => ({
-        id:               r.id,
-        rank:             i + 1,
-        titulo:           r.titulo,
-        marca:            r.marca,
-        seller:           r.seller,
-        subcategoria:     r.subcategoria,
-        plataforma:       r.plataforma,
-        precio_venta:     Number(r.precio_venta),
-        precio:           Number(r.precio),
-        descuento:        Number(r.descuento),
-        url_producto:     r.url_producto,
-        envio:            r.envio,
-        tienda_oficial:   r.tienda_oficial,
-        ranking:          Number(r.best_ranking),
-        appearances_p1:   Number(r.appearances_p1),
+        id:                r.id,
+        rank:              i + 1,
+        titulo:            r.titulo,
+        marca:             r.marca,
+        seller:            r.seller,
+        subcategoria:      r.subcategoria,
+        plataforma:        r.plataforma,
+        precio_venta:      Number(r.precio_venta),
+        precio:            Number(r.precio),
+        descuento:         Number(r.descuento),
+        url_producto:      r.url_producto,
+        envio:             r.envio,
+        tienda_oficial:    r.tienda_oficial,
+        full:              r.full,
+        oferta_relampago:  r.oferta_relampago,
+        cuotas_sin_interes: r.cuotas_sin_interes != null ? Number(r.cuotas_sin_interes) : null,
+        cupon:             r.cupon,
+        ranking:           Number(r.best_ranking),
+        appearances_p1:    Number(r.appearances_p1),
         appearances_total: Number(r.appearances_total),
       })))
     }
