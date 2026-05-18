@@ -42,20 +42,50 @@ function SOSBar({ pct, color, max = 35 }: { pct: number; color: string; max?: nu
 }
 
 function StackedBar({ data }: { data: { label: string; value: number; color: string }[] }) {
+  const [tooltip, setTooltip] = useState<{ label: string; value: number; color: string; x: number } | null>(null)
   const total = data.reduce((s, d) => s + d.value, 0) || 1
   return (
-    <div className="flex rounded-lg overflow-hidden" style={{ height: 28 }}>
-      {data.map(d => (
+    <div className="relative">
+      <div
+        className="flex rounded-lg overflow-hidden"
+        style={{ height: 28 }}
+        onMouseLeave={() => setTooltip(null)}
+      >
+        {data.map(d => (
+          <div
+            key={d.label}
+            style={{
+              width: `${(d.value / total) * 100}%`,
+              backgroundColor: d.color,
+              minWidth: d.value > 1 ? 2 : 0,
+            }}
+            onMouseEnter={e => {
+              const parentRect = e.currentTarget.parentElement!.getBoundingClientRect()
+              const segRect = e.currentTarget.getBoundingClientRect()
+              setTooltip({
+                label: d.label,
+                value: d.value,
+                color: d.color,
+                x: segRect.left - parentRect.left + segRect.width / 2,
+              })
+            }}
+          />
+        ))}
+      </div>
+      {tooltip && (
         <div
-          key={d.label}
-          style={{
-            width: `${(d.value / total) * 100}%`,
-            backgroundColor: d.color,
-            minWidth: d.value > 1 ? 2 : 0,
-          }}
-          title={`${d.label}: ${d.value}%`}
-        />
-      ))}
+          className="absolute z-20 pointer-events-none"
+          style={{ left: Math.max(0, tooltip.x - 70), top: 34 }}
+        >
+          <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-1.5 text-xs whitespace-nowrap">
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: tooltip.color }} />
+              <span className="text-gray-700 font-medium">{tooltip.label}</span>
+              <span className="font-semibold font-mono text-gray-900 ml-1">{tooltip.value}%</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -69,6 +99,10 @@ function TrendChart({
   sellers: string[]
   colors: Record<string, string>
 }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
+  const [tooltipScreenX, setTooltipScreenX] = useState(0)
+  const svgRef = useRef<SVGSVGElement>(null)
+
   if (!data.length || !sellers.length) return null
   const W = 560, H = 160, padL = 36, padR = 12, padT = 12, padB = 20
   const allVals = data.flatMap(pt => sellers.map(s => Number(pt[s] || 0)))
@@ -77,45 +111,112 @@ function TrendChart({
   const x = (i: number) => padL + (i / Math.max(data.length - 1, 1)) * (W - padL - padR)
   const y = (v: number) => padT + (1 - (v - minV) / (maxV - minV)) * (H - padT - padB)
 
+  function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
+    if (!svgRef.current || data.length === 0) return
+    const rect = svgRef.current.getBoundingClientRect()
+    const svgX = ((e.clientX - rect.left) / rect.width) * W
+    const rawIdx = ((svgX - padL) / (W - padL - padR)) * (data.length - 1)
+    const idx = Math.max(0, Math.min(data.length - 1, Math.round(rawIdx)))
+    setHoveredIdx(idx)
+    setTooltipScreenX(e.clientX - rect.left)
+  }
+
+  const hoveredPt = hoveredIdx !== null ? data[hoveredIdx] : null
+
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: H }}>
-      {[0, 0.25, 0.5, 0.75, 1].map(t => {
-        const yv = padT + t * (H - padT - padB)
-        return (
-          <g key={t}>
-            <line x1={padL} y1={yv} x2={W - padR} y2={yv} stroke="#e5e7eb" strokeWidth="1" />
-            <text x={padL - 4} y={yv + 3} textAnchor="end" fill="#9ca3af" fontSize="9">
-              {Math.round(maxV - t * (maxV - minV))}%
+    <div className="relative">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full cursor-crosshair"
+        style={{ height: H }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setHoveredIdx(null)}
+      >
+        {[0, 0.25, 0.5, 0.75, 1].map(t => {
+          const yv = padT + t * (H - padT - padB)
+          return (
+            <g key={t}>
+              <line x1={padL} y1={yv} x2={W - padR} y2={yv} stroke="#e5e7eb" strokeWidth="1" />
+              <text x={padL - 4} y={yv + 3} textAnchor="end" fill="#9ca3af" fontSize="9">
+                {Math.round(maxV - t * (maxV - minV))}%
+              </text>
+            </g>
+          )
+        })}
+        {sellers.map(s => {
+          const color = colors[s] || "#a427ff"
+          const pts = data.map((pt, i) => `${x(i)},${y(Number(pt[s] || 0))}`).join(" ")
+          const last = pts.split(" ").pop()?.split(",")
+          return (
+            <g key={s}>
+              <polyline
+                points={pts}
+                fill="none"
+                stroke={color}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              {last && <circle cx={last[0]} cy={last[1]} r="3" fill={color} />}
+            </g>
+          )
+        })}
+        {data
+          .filter((_, i) => i % 3 === 0)
+          .map((pt, i) => (
+            <text key={i} x={x(i * 3)} y={H - 4} textAnchor="middle" fill="#9ca3af" fontSize="9">
+              {String(pt.week)}
             </text>
-          </g>
-        )
-      })}
-      {sellers.map(s => {
-        const color = colors[s] || "#a427ff"
-        const pts = data.map((pt, i) => `${x(i)},${y(Number(pt[s] || 0))}`).join(" ")
-        const last = pts.split(" ").pop()?.split(",")
-        return (
-          <g key={s}>
-            <polyline
-              points={pts}
-              fill="none"
-              stroke={color}
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          ))}
+        {/* Crosshair */}
+        {hoveredIdx !== null && (
+          <>
+            <line
+              x1={x(hoveredIdx)} y1={padT}
+              x2={x(hoveredIdx)} y2={H - padB}
+              stroke="#6b7280" strokeWidth="1" strokeDasharray="3,2"
             />
-            {last && <circle cx={last[0]} cy={last[1]} r="3" fill={color} />}
-          </g>
-        )
-      })}
-      {data
-        .filter((_, i) => i % 3 === 0)
-        .map((pt, i) => (
-          <text key={i} x={x(i * 3)} y={H - 4} textAnchor="middle" fill="#9ca3af" fontSize="9">
-            {String(pt.week)}
-          </text>
-        ))}
-    </svg>
+            {sellers.map(s => (
+              <circle
+                key={s}
+                cx={x(hoveredIdx)}
+                cy={y(Number(data[hoveredIdx][s] || 0))}
+                r="4"
+                fill={colors[s] || "#a427ff"}
+                stroke="white"
+                strokeWidth="1.5"
+              />
+            ))}
+          </>
+        )}
+      </svg>
+      {/* Tooltip flotante */}
+      {hoveredIdx !== null && hoveredPt && (
+        <div
+          className="absolute top-0 z-20 pointer-events-none"
+          style={{
+            left: tooltipScreenX > 300 ? tooltipScreenX - 150 : tooltipScreenX + 14,
+            transform: "translateY(4px)",
+          }}
+        >
+          <div className="bg-white border border-gray-200 rounded-xl shadow-lg px-3 py-2 text-xs min-w-[140px]">
+            <div className="text-[10px] text-gray-400 font-medium mb-1.5 border-b border-gray-100 pb-1">
+              {String(hoveredPt.week)}
+            </div>
+            {[...sellers]
+              .sort((a, b) => Number(hoveredPt[b] || 0) - Number(hoveredPt[a] || 0))
+              .map(s => (
+                <div key={s} className="flex items-center gap-1.5 py-0.5">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: colors[s] || "#a427ff" }} />
+                  <span className="flex-1 text-gray-600 truncate max-w-[80px]">{s}</span>
+                  <span className="font-semibold font-mono text-gray-900">{Number(hoveredPt[s] || 0)}%</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
