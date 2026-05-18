@@ -79,12 +79,12 @@ function PlanogramaDigital({
       {/* Góndola */}
       {rows.map((row, ri) => (
         <div key={ri} className="grid grid-cols-5 gap-2">
-          {row.map((entry) => {
-            const pos = entry.ranking
+          {row.map((entry, ci) => {
+            const pos    = ri * 5 + ci + 1   // posición visual en el ranking
             const weight = posWeight(pos)
-            const isOwn = entry.seller === selectedSeller
-            const color = isOwn ? (colors[entry.seller] || "#A427FF") : (colors[entry.seller] || "#9ca3af")
-            const isTop3 = pos <= 3
+            const isOwn  = entry.seller === selectedSeller
+            const color  = isOwn ? (colors[entry.seller] || "#A427FF") : (colors[entry.seller] || "#9ca3af")
+            const isTop3  = pos <= 3
             const isTop10 = pos <= 10
 
             return (
@@ -136,10 +136,11 @@ function PlanogramaDigital({
                   </div>
                 </div>
 
-                {/* Marca */}
+                {/* Marca + score */}
                 {entry.marca && (
-                  <div className="text-[9px] text-gray-300 font-mono mt-1.5 text-right truncate">{entry.marca}</div>
+                  <div className="text-[9px] text-gray-300 font-mono mt-1.5 truncate">{entry.marca}</div>
                 )}
+                <div className="text-[9px] text-gray-300 font-mono text-right">score {entry.ranking}</div>
               </div>
             )
           })}
@@ -265,14 +266,17 @@ export default function RankingPage() {
     e.marca?.toLowerCase().includes(search.toLowerCase())
   )
 
-  // KPIs — adaptan según si hay seller seleccionado o se muestran todos
+  // KPIs — usan posición visual (orden en array) no el valor crudo de ranking
   const isAllSellers   = selectedSeller === ""
   const kpiProducts    = isAllSellers ? data : data.filter(e => e.seller === selectedSeller)
-  const ownTop3        = kpiProducts.filter(e => e.ranking <= 3).length
-  const ownTop10       = kpiProducts.filter(e => e.ranking <= 10).length
-  const ownBestRank    = kpiProducts.length ? Math.min(...kpiProducts.map(e => e.ranking)) : null
+  const ownBestRank    = isAllSellers
+    ? (filtered.length > 0 ? 1 : null)
+    : (() => { const idx = filtered.findIndex(e => e.seller === selectedSeller); return idx >= 0 ? idx + 1 : null })()
+  const ownTop3        = filtered.slice(0, 3).filter(e => isAllSellers || e.seller === selectedSeller).length
+  const ownTop10       = filtered.slice(0, 10).filter(e => isAllSellers || e.seller === selectedSeller).length
+  const ownBestScore   = kpiProducts.length > 0 ? kpiProducts[0].ranking : null
   const ownCapture     = kpiProducts.length
-    ? Math.round(kpiProducts.reduce((s, e) => s + posWeight(e.ranking), 0) / Math.max(data.length, 1))
+    ? Math.round(kpiProducts.reduce((s, e, i) => s + posWeight(i + 1), 0) / Math.max(kpiProducts.length, 1))
     : 0
 
   // Sellers presentes en resultados (para colores)
@@ -405,11 +409,12 @@ export default function RankingPage() {
             label: isAllSellers ? "Mejor posición general" : `Mejor posición · ${selectedSeller}`,
             value: ownBestRank !== null ? `#${ownBestRank}` : "—",
             color: ownBestRank !== null && ownBestRank <= 3 ? "#16a34a" : ownBestRank !== null && ownBestRank <= 10 ? "#d97706" : "#6b7280",
+            sub: ownBestScore !== null ? `score: ${ownBestScore}` : undefined,
           },
           {
-            label: isAllSellers ? "Captura ponderada total" : "Captura ponderada",
+            label: isAllSellers ? "Potencial promedio total" : "Potencial promedio",
             value: `${ownCapture}%`,
-            sub: "vs potencial posición #1",
+            sub: "basado en posición en resultados",
           },
           {
             label: "Productos top 3",
@@ -484,8 +489,8 @@ export default function RankingPage() {
         ) : (
           /* ── Vista lista ── */
           <div className="space-y-1.5">
-            {filtered.map(entry => {
-              const pos     = entry.ranking
+            {filtered.map((entry, i) => {
+              const pos     = i + 1              // posición visual por orden de score
               const w       = posWeight(pos)
               const isOwn   = entry.seller === selectedSeller
               const color   = isOwn ? (COLORS[entry.seller] || "#A427FF") : (COLORS[entry.seller] || "#9ca3af")
@@ -524,10 +529,10 @@ export default function RankingPage() {
                     <div className="text-[10px] text-gray-400 truncate">{entry.seller}{entry.marca ? ` · ${entry.marca}` : ""}</div>
                   </div>
 
-                  {/* Apariciones p1 */}
+                  {/* Apariciones + score */}
                   <div className="hidden lg:block text-right flex-shrink-0">
-                    <div className="text-[10px] text-gray-400">Apariciones P1</div>
-                    <div className="text-xs font-bold text-gray-700">{entry.appearances_p1}</div>
+                    <div className="text-[10px] text-gray-400">Score</div>
+                    <div className="text-xs font-bold text-gray-700">{entry.ranking}</div>
                   </div>
 
                   {/* Barra potencial */}

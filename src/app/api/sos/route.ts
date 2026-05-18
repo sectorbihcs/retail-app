@@ -374,14 +374,14 @@ export async function GET(req: Request) {
           MAX(producto) AS titulo,
           MAX(marca) AS marca,
           ${NORM_SELLER} AS seller,
-          MIN(ranking) AS best_ranking,
+          MAX(ranking) AS best_ranking,
           COUNT(*) FILTER (WHERE pagina = 1) AS appearances_p1,
           COUNT(*) AS appearances_total,
           MAX(pagina) AS max_page
         FROM eci.sos
         WHERE ${w} ${pageClause} AND id IS NOT NULL AND ranking IS NOT NULL ${sellerCond}
         GROUP BY id, ${NORM_SELLER}
-        ORDER BY best_ranking ASC
+        ORDER BY best_ranking DESC
         LIMIT ${limit}
       `
       const rows = await prisma.$queryRawUnsafe<{
